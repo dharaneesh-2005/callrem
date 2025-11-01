@@ -63,13 +63,13 @@ app.use((req, res, next) => {
   // Start the reminder scheduler
   startScheduler();
 
-  // ALWAYS serve the app on port 5000
+  // Use PORT environment variable (provided by Render) or default to 5000 for local development
   // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
+  const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
+  // Bind to 0.0.0.0 so the server is accessible from outside the container (required for Render)
   server.listen({
     port,
-    host: "127.0.0.1"
+    host: "0.0.0.0"
   }, () => {
     log(`serving on port ${port}`);
   });
