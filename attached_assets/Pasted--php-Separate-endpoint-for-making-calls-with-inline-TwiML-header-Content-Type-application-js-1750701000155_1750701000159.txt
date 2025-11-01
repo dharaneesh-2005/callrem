@@ -1,0 +1,102 @@
+<?php
+// Separate endpoint for making calls with inline TwiML
+header('Content-Type: application/json');
+
+include('db_connect.php');
+include('twilio-config.php');
+include('phone-utils.php');
+
+// Include Twilio SDK
+require 'Twilio/autoload.php';
+use Twilio\Rest\Client;
+
+// Create a new Twilio client
+$client = new Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $phoneNumber = $_POST['phone'] ?? '';
+    $studentId = $_POST['student_id'] ?? '';
+    $balance = $_POST['balance'] ?? '';
+    $studentName = $_POST['name'] ?? '';
+    
+    // Format phone number for Twilio
+    $formattedPhone = formatPhoneNumberForTwilio($phoneNumber);
+    $isValidPhone = isValidPhoneNumber($phoneNumber);
+    
+    // Log phone number processing for debugging
+    logPhoneNumberProcessing($phoneNumber, $formattedPhone, $isValidPhone);
+    
+    // Check if phone number is valid
+    if (!$isValidPhone) {
+        echo json_encode(['success' => false, 'message' => 'Invalid phone number format']);
+        exit;
+    }
+    
+    // Create inline TwiML with simple configurable message
+    $twiml = '<?xml version="1.0" encoding="UTF-8"?>';
+    $twiml .= '<Response>';
+    $twiml .= '<Say voice="' . VOICE_NAME . '" language="' . VOICE_LANGUAGE . '">';
+    
+    // Replace placeholders in the message with actual data
+    $message = REMINDER_MESSAGE;
+    $message = str_replace('{STUDENT_NAME}', $studentName, $message);
+    $message = str_replace('{BALANCE_AMOUNT}', number_format($balance, 0), $message);
+    $message = str_replace('{SCHOOL_NAME}', SCHOOL_NAME, $message);
+    $message = str_replace('{SCHOOL_CONTACT}', SCHOOL_CONTACT, $message);
+    // Remove any due date placeholder if present
+    $message = str_replace('{DUE_DATE}', '', $message);
+    
+    $twiml .= $message;
+    $twiml .= '</Say>';
+    $twiml .= '</Response>';
+    
+    // Log the call attempt for debugging
+    $log = "Using Inline TwiML\n";
+    $log .= "Phone: " . $formattedPhone . "\n";
+    $log .= "Student ID: " . $studentId . "\n";
+    $log .= "Student Name: " . $studentName . "\n";
+    $log .= "Balance: " . $balance . "\n";
+    $log .= "Message: " . $message . "\n";
+    $log .= "TwiML: " . $twiml . "\n";
+    file_put_contents('call_debug.log', $log, FILE_APPEND | LOCK_EX);
+
+    try {
+        // Create the call with inline TwiML
+        $call = $client->calls->create(
+            $formattedPhone, // To number (formatted)
+            TWILIO_PHONE_NUMBER, // From number
+            [
+                'twiml' => $twiml,
+                'timeout' => 30
+            ]
+        );
+
+        // Log successful call creation
+        $successLog = "Call initiated successfully!\n";
+        $successLog .= "Call SID: " . $call->sid . "\n";
+        $successLog .= "Status: " . $call->status . "\n";
+        $successLog .= "To: " . $call->to . "\n";
+        $successLog .= "From: " . $call->from . "\n";
+        $successLog .= "Timestamp: " . date('Y-m-d H:i:s') . "\n";
+        $successLog .= "---\n";
+        file_put_contents('call_success.log', $successLog, FILE_APPEND | LOCK_EX);
+
+        echo json_encode(['success' => true, 'message' => 'Call initiated successfully', 'sid' => $call->sid]);
+        
+    } catch (Exception $e) {
+        // Log error details
+        $errorLog = "Call Error:\n";
+        $errorLog .= "Error Message: " . $e->getMessage() . "\n";
+        $errorLog .= "Error Code: " . $e->getCode() . "\n";
+        $errorLog .= "Phone: " . $formattedPhone . "\n";
+        $errorLog .= "TwiML: " . $twiml . "\n";
+        $errorLog .= "Timestamp: " . date('Y-m-d H:i:s') . "\n";
+        $errorLog .= "---\n";
+        file_put_contents('call_error.log', $errorLog, FILE_APPEND | LOCK_EX);
+        
+        echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+    }
+} else {
+    echo json_encode(['success' => false, 'message' => 'Invalid request method']);
+}
+?> 

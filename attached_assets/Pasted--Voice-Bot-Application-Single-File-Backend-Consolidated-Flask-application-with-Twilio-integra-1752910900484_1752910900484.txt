@@ -1,0 +1,694 @@
+"""
+Voice Bot Application - Single File Backend
+Consolidated Flask application with Twilio integration and Gemini AI
+"""
+
+import os
+import json
+import logging
+from datetime import datetime
+from typing import Dict, Tuple
+
+# Flask and related imports
+from flask import Flask, request, Response, render_template, redirect, url_for, flash, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import func
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+# Twilio imports
+from twilio.rest import Client
+from twilio.twiml.voice_response import VoiceResponse, Gather
+
+# Gemini AI imports
+from google import genai
+from google.genai import types
+from pydantic import BaseModel
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+# ====== DATABASE SETUP ======
+
+class Base(DeclarativeBase):
+    pass
+
+db = SQLAlchemy(model_class=Base)
+
+# ====== FLASK APP SETUP ======
+
+# Create the app
+app = Flask(__name__)
+app.secret_key = os.environ.get("SESSION_SECRET", "fallback-secret-key-for-development")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# Configure the database
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///voicebot.db")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_recycle": 300,
+    "pool_pre_ping": True,
+}
+
+# Initialize the app with the extension
+db.init_app(app)
+
+# ====== DATABASE MODELS ======
+
+class CallLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    call_sid = db.Column(db.String(100), unique=True, nullable=False)
+    to_number = db.Column(db.String(20), nullable=False)
+    from_number = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='initiated')
+    duration = db.Column(db.Integer, default=0)  # Duration in seconds
+    speech_results = db.Column(db.Text)  # JSON string of speech interactions
+    created_at = db.Column(db.DateTime, default=func.now())
+    updated_at = db.Column(db.DateTime, default=func.now(), onupdate=func.now())
+    
+    def __repr__(self):
+        return f'<CallLog {self.call_sid}>'
+
+class ConversationLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    call_sid = db.Column(db.String(100), nullable=False)
+    user_speech = db.Column(db.Text)
+    bot_response = db.Column(db.Text)
+    intent = db.Column(db.String(50))  # support, sales, general, etc.
+    confidence = db.Column(db.Float, default=0.0)
+    timestamp = db.Column(db.DateTime, default=func.now())
+    
+    def __repr__(self):
+        return f'<ConversationLog {self.call_sid} - {self.intent}>'
+
+# ====== GEMINI AI SERVICE ======
+
+# Initialize Gemini client
+try:
+    gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+except Exception as e:
+    logger.error(f"Failed to initialize Gemini client: {e}")
+    gemini_client = None
+
+class IntentClassification(BaseModel):
+    intent: str
+    confidence: float
+    suggested_response: str
+    should_transfer: bool
+    department: str
+
+class VoiceBotGeminiService:
+    """Service for handling Gemini AI integration in voice bot"""
+    
+    def __init__(self):
+        self.client = gemini_client
+        self.conversation_context = {}
+    
+    def classify_intent_and_respond(self, user_speech: str, call_sid: str = None) -> Tuple[str, str, float, bool, str]:
+        """
+        Classify user intent and generate appropriate response using Gemini
+        
+        Returns:
+            Tuple of (intent, response, confidence, should_transfer, department)
+        """
+        if not self.client:
+            logger.error("Gemini client not initialized")
+            return self._fallback_response(user_speech)
+        
+        try:
+            # Build context for this conversation
+            context = self._get_conversation_context(call_sid)
+            
+            system_prompt = """You are a professional voice assistant for a customer service call center. 
+
+Your role is to:
+1. Classify the caller's intent into one of: 'support', 'sales', 'information', 'general'
+2. Generate a helpful, natural response (maximum 2 sentences for voice calls)
+3. Determine if the call should be transferred to a human agent
+4. Specify which department to transfer to if needed
+
+Guidelines:
+- Keep responses conversational and friendly
+- For support issues: acknowledge the problem and explain next steps
+- For sales inquiries: show enthusiasm and gather basic needs
+- For information requests: provide helpful details
+- Use simple language suitable for phone conversations
+- Be concise - voice responses should be brief
+
+Context about the company:
+- Business hours: Monday-Friday 9 AM to 6 PM, Saturday 10 AM to 4 PM
+- Location: 123 Main Street, Suite 100, downtown
+- Services: Technical support, sales, and general information
+- Phone: Current number, Email: info@company.com
+
+Respond with JSON in this exact format:
+{
+    "intent": "support|sales|information|general",
+    "confidence": 0.0-1.0,
+    "suggested_response": "Your voice response here",
+    "should_transfer": true|false,
+    "department": "support|sales|information|none"
+}"""
+
+            user_message = f"Caller said: '{user_speech}'\n\nConversation context: {context}"
+            
+            response = self.client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=[
+                    types.Content(role="user", parts=[types.Part(text=user_message)])
+                ],
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type="application/json",
+                    response_schema=IntentClassification,
+                    temperature=0.3
+                ),
+            )
+
+            if response.text:
+                result = json.loads(response.text)
+                intent = result.get('intent', 'general')
+                suggested_response = result.get('suggested_response', '')
+                confidence = float(result.get('confidence', 0.5))
+                should_transfer = result.get('should_transfer', False)
+                department = result.get('department', 'none')
+                
+                # Update conversation context
+                self._update_conversation_context(call_sid, user_speech, suggested_response, intent)
+                
+                logger.info(f"Gemini classification: intent={intent}, confidence={confidence}, transfer={should_transfer}")
+                
+                return intent, suggested_response, confidence, should_transfer, department
+            else:
+                logger.warning("Empty response from Gemini")
+                return self._fallback_response(user_speech)
+                
+        except Exception as e:
+            logger.error(f"Error with Gemini classification: {e}")
+            return self._fallback_response(user_speech)
+    
+    def generate_followup_response(self, user_speech: str, previous_intent: str, call_sid: str = None) -> str:
+        """Generate a follow-up response for continued conversation"""
+        if not self.client:
+            return "Thank you for that information. Is there anything else I can help you with?"
+        
+        try:
+            context = self._get_conversation_context(call_sid)
+            
+            system_prompt = f"""You are continuing a conversation where the previous intent was '{previous_intent}'. 
+            
+Generate a brief, helpful follow-up response (1-2 sentences max) that:
+1. Acknowledges what the caller just said
+2. Provides useful information or next steps
+3. Maintains the conversation flow
+
+Keep it natural and conversational for a phone call."""
+
+            user_message = f"Caller's follow-up: '{user_speech}'\n\nPrevious conversation: {context}"
+            
+            response = self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.4
+                ),
+            )
+            
+            if response.text:
+                followup_response = response.text.strip()
+                self._update_conversation_context(call_sid, user_speech, followup_response, 'followup')
+                return followup_response
+            else:
+                return "Thank you for that information. Is there anything else I can help you with?"
+                
+        except Exception as e:
+            logger.error(f"Error generating follow-up response: {e}")
+            return "Thank you for that information. Is there anything else I can help you with?"
+    
+    def _fallback_response(self, user_speech: str) -> Tuple[str, str, float, bool, str]:
+        """Fallback response when Gemini is unavailable"""
+        speech_lower = user_speech.lower()
+        
+        if any(word in speech_lower for word in ['support', 'help', 'problem', 'issue', 'bug', 'error']):
+            return ('support', 
+                   "I understand you need technical support. Let me connect you with our support team right away.",
+                   0.8, True, 'support')
+        elif any(word in speech_lower for word in ['sales', 'buy', 'purchase', 'price', 'cost']):
+            return ('sales',
+                   "Great! You're interested in our products. Let me connect you with our sales team.",
+                   0.8, True, 'sales')
+        elif any(word in speech_lower for word in ['hours', 'location', 'information', 'address']):
+            return ('information',
+                   "Our hours are Monday through Friday, 9 AM to 6 PM. We're located at 123 Main Street. What specific information do you need?",
+                   0.7, False, 'none')
+        else:
+            return ('general',
+                   "I can help you with support issues, sales inquiries, or general information. Could you please be more specific?",
+                   0.5, False, 'none')
+    
+    def _get_conversation_context(self, call_sid: str) -> str:
+        """Get conversation context for this call"""
+        if not call_sid or call_sid not in self.conversation_context:
+            return "This is the start of the conversation."
+        
+        context = self.conversation_context[call_sid]
+        context_lines = []
+        for exchange in context[-3:]:  # Last 3 exchanges
+            context_lines.append(f"User: {exchange['user']}")
+            context_lines.append(f"Bot: {exchange['bot']}")
+        
+        return "\n".join(context_lines)
+    
+    def _update_conversation_context(self, call_sid: str, user_speech: str, bot_response: str, intent: str):
+        """Update conversation context for this call"""
+        if not call_sid:
+            return
+        
+        if call_sid not in self.conversation_context:
+            self.conversation_context[call_sid] = []
+        
+        self.conversation_context[call_sid].append({
+            'user': user_speech,
+            'bot': bot_response,
+            'intent': intent
+        })
+        
+        # Keep only last 5 exchanges to manage memory
+        if len(self.conversation_context[call_sid]) > 5:
+            self.conversation_context[call_sid] = self.conversation_context[call_sid][-5:]
+
+# Global service instance
+gemini_service = VoiceBotGeminiService()
+
+# ====== TWILIO CONFIGURATION ======
+
+# Twilio credentials from environment variables
+ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', 'your_account_sid')
+AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', 'your_auth_token')
+TWILIO_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER', '+1234567890')
+
+def get_twilio_client():
+    """Get Twilio client with error handling"""
+    try:
+        return Client(ACCOUNT_SID, AUTH_TOKEN)
+    except Exception as e:
+        logger.error(f"Failed to create Twilio client: {str(e)}")
+        return None
+
+# ====== FLASK ROUTES ======
+
+@app.route('/')
+def index():
+    """Main dashboard page"""
+    recent_calls = CallLog.query.order_by(CallLog.created_at.desc()).limit(10).all()
+    return render_template('index.html', recent_calls=recent_calls)
+
+@app.route('/dashboard')
+def dashboard():
+    """Detailed dashboard with call analytics"""
+    total_calls = CallLog.query.count()
+    successful_calls = CallLog.query.filter(CallLog.status.in_(['completed', 'in-progress'])).count()
+    recent_calls = CallLog.query.order_by(CallLog.created_at.desc()).limit(20).all()
+    
+    # Get conversation stats
+    support_calls = ConversationLog.query.filter_by(intent='support').count()
+    sales_calls = ConversationLog.query.filter_by(intent='sales').count()
+    general_calls = ConversationLog.query.filter_by(intent='general').count()
+    
+    stats = {
+        'total_calls': total_calls,
+        'successful_calls': successful_calls,
+        'success_rate': (successful_calls / total_calls * 100) if total_calls > 0 else 0,
+        'support_calls': support_calls,
+        'sales_calls': sales_calls,
+        'general_calls': general_calls
+    }
+    
+    return render_template('dashboard.html', stats=stats, recent_calls=recent_calls)
+
+@app.route('/initiate_call', methods=['POST'])
+def initiate_call():
+    """Initiate an outbound call"""
+    destination_number = request.form.get('phone_number')
+    
+    if not destination_number:
+        flash('Phone number is required', 'error')
+        return redirect(url_for('index'))
+    
+    client = get_twilio_client()
+    if not client:
+        flash('Failed to connect to Twilio service', 'error')
+        return redirect(url_for('index'))
+    
+    try:
+        # Create the call
+        call = client.calls.create(
+            to=destination_number,
+            from_=TWILIO_NUMBER,
+            url=request.url_root + 'voice',  # TwiML URL for handling the call
+            status_callback=request.url_root + 'call_status',
+            status_callback_method='POST'
+        )
+        
+        # Log the call
+        call_log = CallLog(
+            call_sid=call.sid,
+            to_number=destination_number,
+            from_number=TWILIO_NUMBER,
+            status='initiated'
+        )
+        db.session.add(call_log)
+        db.session.commit()
+        
+        flash(f'Call initiated successfully! Call SID: {call.sid}', 'success')
+        logger.info(f"Call initiated: {call.sid} to {destination_number}")
+        
+    except Exception as e:
+        logger.error(f"Failed to initiate call: {str(e)}")
+        flash(f'Failed to initiate call: {str(e)}', 'error')
+    
+    return redirect(url_for('index'))
+
+@app.route('/voice', methods=['POST'])
+def voice():
+    """Handle incoming voice calls with initial AI-powered greeting"""
+    response = VoiceResponse()
+    
+    # Get call SID for logging
+    call_sid = request.form.get('CallSid', '')
+    caller_number = request.form.get('From', '')
+    
+    # Create a gather to listen for speech
+    gather = Gather(
+        input='speech',
+        action='/handle_speech',
+        method='POST',
+        timeout=12,
+        speech_timeout='auto',
+        language='en-US'
+    )
+    
+    # Use a more natural, conversational greeting
+    greeting = (
+        "Hello! Thank you for calling. I'm your AI assistant and I'm here to help. "
+        "Whether you need technical support, have questions about our products and services, "
+        "or just need general information, I can assist you or connect you with the right person. "
+        "What can I help you with today?"
+    )
+    
+    gather.say(greeting, voice='alice')
+    response.append(gather)
+    
+    # If no speech is detected, be more helpful
+    response.say(
+        "I didn't hear anything - you might be on mute or having connection issues. "
+        "Please try calling back, and feel free to speak right after you hear the greeting. "
+        "Thank you!",
+        voice='alice'
+    )
+    response.hangup()
+    
+    # Log the initial interaction
+    try:
+        conversation = ConversationLog(
+            call_sid=call_sid,
+            user_speech=f"[Call initiated from {caller_number}]",
+            bot_response="AI-powered greeting provided",
+            intent="greeting",
+            confidence=1.0
+        )
+        db.session.add(conversation)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to log conversation: {str(e)}")
+    
+    return Response(str(response), mimetype='text/xml')
+
+@app.route('/handle_speech', methods=['POST'])
+def handle_speech():
+    """Process speech input and respond accordingly using Gemini AI"""
+    speech_result = request.form.get('SpeechResult', '').strip()
+    twilio_confidence = float(request.form.get('Confidence', 0.0))
+    call_sid = request.form.get('CallSid', '')
+    
+    response = VoiceResponse()
+    
+    logger.info(f"Speech received: '{speech_result}' with Twilio confidence: {twilio_confidence}")
+    
+    # Check if speech recognition confidence is too low
+    if twilio_confidence < 0.3:
+        bot_response = "I'm sorry, I didn't quite catch that. Could you please speak a bit louder and repeat what you need help with?"
+        response.say(bot_response, voice='alice')
+        response.redirect('/voice_retry')
+        
+        # Log low confidence attempt
+        try:
+            conversation = ConversationLog(
+                call_sid=call_sid,
+                user_speech=f"[Low confidence: {speech_result}]",
+                bot_response=bot_response,
+                intent='unclear',
+                confidence=twilio_confidence
+            )
+            db.session.add(conversation)
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"Failed to log conversation: {str(e)}")
+        
+        return Response(str(response), mimetype='text/xml')
+    
+    # Use Gemini to classify intent and generate response
+    try:
+        intent, bot_response, ai_confidence, should_transfer, department = gemini_service.classify_intent_and_respond(
+            speech_result, call_sid
+        )
+        
+        logger.info(f"Gemini response: intent={intent}, confidence={ai_confidence}, transfer={should_transfer}, dept={department}")
+        
+        # Generate TwiML response based on Gemini's decision
+        response.say(bot_response, voice='alice')
+        
+        if should_transfer:
+            if department == 'support':
+                response.say("Please hold while I connect you to our technical support team.", voice='alice')
+                # In production, you would use Twilio's transfer capabilities here
+                response.say("A support representative will contact you shortly. Thank you for calling.", voice='alice')
+                response.hangup()
+            elif department == 'sales':
+                response.say("Let me connect you with our sales team right away.", voice='alice')
+                # In production, you would use Twilio's transfer capabilities here  
+                response.say("A sales representative will be with you shortly. Thank you for your interest!", voice='alice')
+                response.hangup()
+            else:
+                response.say("Thank you for calling. Have a wonderful day!", voice='alice')
+                response.hangup()
+        else:
+            # Continue conversation - ask for follow-up
+            if intent == 'information':
+                gather = Gather(
+                    input='speech',
+                    action='/handle_followup',
+                    method='POST',
+                    timeout=10,
+                    speech_timeout='auto'
+                )
+                gather.say("Is there anything else you'd like to know?", voice='alice')
+                response.append(gather)
+                response.say("Thank you for calling. Have a great day!", voice='alice')
+                response.hangup()
+            else:
+                # For general inquiries, give another chance to be more specific
+                response.redirect('/voice_retry')
+        
+        # Log the conversation with Gemini results
+        try:
+            conversation = ConversationLog(
+                call_sid=call_sid,
+                user_speech=speech_result,
+                bot_response=bot_response,
+                intent=intent,
+                confidence=ai_confidence
+            )
+            db.session.add(conversation)
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"Failed to log conversation: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"Error processing speech with Gemini: {str(e)}")
+        
+        # Fallback to basic response
+        bot_response = "I'm having trouble processing your request right now. Let me connect you with a representative who can help you."
+        response.say(bot_response, voice='alice')
+        response.say("Please hold while we connect you. Thank you for your patience.", voice='alice')
+        response.hangup()
+        
+        # Log the error
+        try:
+            conversation = ConversationLog(
+                call_sid=call_sid,
+                user_speech=speech_result,
+                bot_response=bot_response,
+                intent='error',
+                confidence=0.0
+            )
+            db.session.add(conversation)
+            db.session.commit()
+        except Exception as e:
+            logger.error(f"Failed to log error conversation: {str(e)}")
+    
+    return Response(str(response), mimetype='text/xml')
+
+@app.route('/voice_retry', methods=['POST'])
+def voice_retry():
+    """Handle retry attempts with AI-powered clarification"""
+    response = VoiceResponse()
+    call_sid = request.form.get('CallSid', '')
+    
+    gather = Gather(
+        input='speech',
+        action='/handle_speech',
+        method='POST',
+        timeout=10,
+        speech_timeout='auto'
+    )
+    
+    # More helpful retry message
+    gather.say(
+        "Let me try to help you better. You can say things like 'I need technical support', "
+        "'I want to buy something', or 'I need information about your hours'. "
+        "What would you like help with?",
+        voice='alice'
+    )
+    
+    response.append(gather)
+    response.say("Thank you for calling. If you need immediate assistance, please call back. Goodbye!", voice='alice')
+    response.hangup()
+    
+    # Log retry attempt
+    try:
+        conversation = ConversationLog(
+            call_sid=call_sid,
+            user_speech="[Retry attempt]",
+            bot_response="Clarification provided for retry",
+            intent="retry",
+            confidence=0.5
+        )
+        db.session.add(conversation)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to log retry conversation: {str(e)}")
+    
+    return Response(str(response), mimetype='text/xml')
+
+@app.route('/handle_followup', methods=['POST'])
+def handle_followup():
+    """Handle follow-up questions using Gemini AI"""
+    speech_result = request.form.get('SpeechResult', '').strip()
+    call_sid = request.form.get('CallSid', '')
+    
+    response = VoiceResponse()
+    
+    try:
+        # Use Gemini to generate intelligent follow-up response
+        bot_response = gemini_service.generate_followup_response(
+            speech_result, 'information', call_sid
+        )
+        
+        logger.info(f"Gemini follow-up response: {bot_response}")
+        
+    except Exception as e:
+        logger.error(f"Error generating follow-up with Gemini: {str(e)}")
+        bot_response = "Thank you for that question. For more detailed information, please visit our website or speak with one of our representatives."
+    
+    response.say(bot_response, voice='alice')
+    response.say("Thank you for calling. Have a wonderful day!", voice='alice')
+    response.hangup()
+    
+    # Log the follow-up conversation
+    try:
+        conversation = ConversationLog(
+            call_sid=call_sid,
+            user_speech=speech_result,
+            bot_response=bot_response,
+            intent='followup',
+            confidence=0.8
+        )
+        db.session.add(conversation)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to log follow-up conversation: {str(e)}")
+    
+    return Response(str(response), mimetype='text/xml')
+
+@app.route('/call_status', methods=['POST'])
+def call_status():
+    """Handle call status updates from Twilio"""
+    call_sid = request.form.get('CallSid')
+    call_status = request.form.get('CallStatus')
+    call_duration = request.form.get('CallDuration', 0)
+    
+    logger.info(f"Call status update: {call_sid} - {call_status}")
+    
+    try:
+        call_log = CallLog.query.filter_by(call_sid=call_sid).first()
+        if call_log:
+            call_log.status = call_status
+            call_log.duration = int(call_duration) if call_duration else 0
+            call_log.updated_at = datetime.utcnow()
+            db.session.commit()
+    except Exception as e:
+        logger.error(f"Failed to update call status: {str(e)}")
+    
+    return Response('OK', status=200)
+
+@app.route('/api/call_stats')
+def api_call_stats():
+    """API endpoint for call statistics"""
+    try:
+        total_calls = CallLog.query.count()
+        completed_calls = CallLog.query.filter_by(status='completed').count()
+        in_progress_calls = CallLog.query.filter_by(status='in-progress').count()
+        
+        recent_activity = []
+        recent_calls = CallLog.query.order_by(CallLog.created_at.desc()).limit(5).all()
+        
+        for call in recent_calls:
+            recent_activity.append({
+                'call_sid': call.call_sid,
+                'to_number': call.to_number,
+                'status': call.status,
+                'duration': call.duration,
+                'created_at': call.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return jsonify({
+            'total_calls': total_calls,
+            'completed_calls': completed_calls,
+            'in_progress_calls': in_progress_calls,
+            'recent_activity': recent_activity
+        })
+    except Exception as e:
+        logger.error(f"Failed to get call stats: {str(e)}")
+        return jsonify({'error': 'Failed to retrieve statistics'}), 500
+
+@app.errorhandler(404)
+def not_found_error(error):
+    return render_template('index.html'), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return render_template('index.html'), 500
+
+# ====== APPLICATION INITIALIZATION ======
+
+with app.app_context():
+    # Create database tables
+    db.create_all()
+
+# ====== MAIN ENTRY POINT ======
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
