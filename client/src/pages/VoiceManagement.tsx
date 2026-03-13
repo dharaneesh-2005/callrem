@@ -98,21 +98,21 @@ export default function VoiceManagement() {
     },
   });
 
-  const testGeminiMutation = useMutation({
+  const testGroqMutation = useMutation({
     mutationFn: async (data: { text: string; language: string; studentId?: number }) => {
-      const response = await apiRequest("POST", "/api/voice/test-gemini", data);
+      const response = await apiRequest("POST", "/api/voice/test-groq", data);
       return response.json();
     },
     onSuccess: (data) => {
       toast({
-        title: "Gemini Test Completed",
-        description: `Intent: ${data.result.intent} (${Math.round(data.result.confidence * 100)}% confidence)`,
+        title: "Groq Llama Test Completed",
+        description: `Intent: ${data.result.intent} (${Math.round(data.result.confidence * 100)}% confidence) - ${data.processingTimeMs}ms`,
       });
     },
     onError: (error: any) => {
       toast({
         title: "Test Failed",
-        description: error.message || "Failed to test Gemini processing",
+        description: error.message || "Failed to test Groq Llama processing",
         variant: "destructive",
       });
     },
@@ -135,7 +135,7 @@ export default function VoiceManagement() {
     });
   };
 
-  const handleTestGemini = () => {
+  const handleTestGroq = () => {
     if (!testText.trim()) {
       toast({
         title: "Missing Information",
@@ -145,7 +145,7 @@ export default function VoiceManagement() {
       return;
     }
 
-    testGeminiMutation.mutate({
+    testGroqMutation.mutate({
       text: testText.trim(),
       language: testLanguage,
       studentId: testStudentId || undefined,
@@ -189,7 +189,7 @@ export default function VoiceManagement() {
         <div>
           <h1 className="text-3xl font-bold">Voice AI Management</h1>
           <p className="text-muted-foreground">
-            Manage intelligent voice calls and Gemini AI responses
+            Manage intelligent voice calls and Groq Llama AI responses (fastest model)
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -206,7 +206,7 @@ export default function VoiceManagement() {
           </TabsTrigger>
           <TabsTrigger value="test" className="flex items-center gap-2">
             <TestTube className="h-4 w-4" />
-            Test Gemini
+            Test AI
           </TabsTrigger>
           <TabsTrigger value="calls" className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
@@ -223,7 +223,7 @@ export default function VoiceManagement() {
             <CardHeader>
               <CardTitle>Initiate Intelligent Voice Call</CardTitle>
               <CardDescription>
-                Start an AI-powered voice call with speech recognition and Gemini AI responses
+                Start an AI-powered voice call with speech recognition and Groq Llama AI responses
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -283,9 +283,9 @@ export default function VoiceManagement() {
         <TabsContent value="test">
           <Card>
             <CardHeader>
-              <CardTitle>Test Gemini AI Processing</CardTitle>
+              <CardTitle>Test Groq Llama AI Processing</CardTitle>
               <CardDescription>
-                Test how Gemini AI processes text input with student context
+                Test how Groq Llama AI processes text input with student context (fastest model)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -333,14 +333,14 @@ export default function VoiceManagement() {
               </div>
 
               <Button
-                onClick={handleTestGemini}
-                disabled={testGeminiMutation.isPending}
+                onClick={handleTestGroq}
+                disabled={testGroqMutation.isPending}
                 className="w-full"
               >
-                {testGeminiMutation.isPending ? "Testing..." : "Test Gemini AI"}
+                {testGroqMutation.isPending ? "Testing..." : "Test Groq Llama AI"}
               </Button>
 
-              {testGeminiMutation.data && (
+              {testGroqMutation.data && (
                 <Card className="mt-4">
                   <CardHeader>
                     <CardTitle>Test Results</CardTitle>
@@ -348,36 +348,36 @@ export default function VoiceManagement() {
                   <CardContent className="space-y-3">
                     <div>
                       <Label className="text-sm font-medium">Input:</Label>
-                      <p className="text-sm text-muted-foreground">{testGeminiMutation.data.input}</p>
+                      <p className="text-sm text-muted-foreground">{testGroqMutation.data.input}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label className="text-sm font-medium">Intent:</Label>
                         <div className="mt-1">
-                          <Badge variant={getIntentBadgeVariant(testGeminiMutation.data.result.intent)}>
-                            {testGeminiMutation.data.result.intent}
+                          <Badge variant={getIntentBadgeVariant(testGroqMutation.data.result.intent)}>
+                            {testGroqMutation.data.result.intent}
                           </Badge>
                         </div>
                       </div>
                       <div>
                         <Label className="text-sm font-medium">Confidence:</Label>
-                        <p className="text-sm">{Math.round(testGeminiMutation.data.result.confidence * 100)}%</p>
+                        <p className="text-sm">{Math.round(testGroqMutation.data.result.confidence * 100)}%</p>
                       </div>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">AI Response:</Label>
-                      <p className="text-sm text-muted-foreground">{testGeminiMutation.data.result.response}</p>
+                      <p className="text-sm text-muted-foreground">{testGroqMutation.data.result.response}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label className="text-sm font-medium">Should Transfer:</Label>
-                        <Badge variant={testGeminiMutation.data.result.shouldTransfer ? "destructive" : "secondary"}>
-                          {testGeminiMutation.data.result.shouldTransfer ? "Yes" : "No"}
+                        <Badge variant={testGroqMutation.data.result.shouldTransfer ? "destructive" : "secondary"}>
+                          {testGroqMutation.data.result.shouldTransfer ? "Yes" : "No"}
                         </Badge>
                       </div>
                       <div>
                         <Label className="text-sm font-medium">Department:</Label>
-                        <Badge variant="outline">{testGeminiMutation.data.result.department}</Badge>
+                        <Badge variant="outline">{testGroqMutation.data.result.department}</Badge>
                       </div>
                     </div>
                   </CardContent>

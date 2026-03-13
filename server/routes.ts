@@ -23,14 +23,14 @@ import Razorpay from "razorpay";
 import twilio from "twilio";
 import crypto from "crypto";
 import { setTwilioClient } from "./scheduler";
-import { 
-  generateChatResponse, 
-  detectLanguage, 
-  classifyIntentAndRespond, 
+import {
+  generateChatResponse,
+  detectLanguage,
+  classifyIntentAndRespond,
   generateFollowupResponse,
-  type ChatContext, 
-  type IntentClassification 
-} from "./gemini";
+  type ChatContext,
+  type IntentClassification
+} from "./groq";
 
 // Initialize Razorpay (conditionally)
 let razorpay: any = null;
@@ -635,68 +635,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Format phone number with country code if needed
         const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
         
-        console.log("Initiating call with TwiML URL method:", {
+        console.log("Initiating AI voice call with webhook:", {
           to: formattedPhone,
           from: TWILIO_PHONE_NUMBER,
           studentName,
           courseName,
           pendingAmount,
           language,
-          customMessage,
-          hasCustomMessage: !!customMessage
+          studentFeeId
         });
 
-        // Create message based on language
-        let rawMessage = customMessage;
-        if (!rawMessage) {
-          if (language === 'ta') {
-            rawMessage = `வணக்கம் ${studentName}, உங்களுக்கு ${courseName} பாடத்திற்காக ${pendingAmount} ரூபாய் கட்டணம் நிலுவையில் உள்ளது என்பதை நினைவூட்டுகிறோம். தயவு செய்து விரைவில் கட்டணம் செலுத்துங்கள். நன்றி.`;
-          } else {
-            rawMessage = `Hello ${studentName}, this is a reminder that you have a pending fee of ${pendingAmount} rupees for ${courseName}. Please make the payment at your earliest convenience. Thank you.`;
-          }
-        }
+        // Get current domain for webhook URLs
+        const baseUrl = process.env.REPLIT_DOMAINS ? 
+          `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+          req.get('host')?.includes('localhost') ? 
+            `http://${req.get('host')}` : 
+            `https://${req.get('host')}`;
         
-        // Clean the message for TwiML (escape XML characters, but preserve Tamil characters)
-        const messageToUse = rawMessage
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&apos;')
-          .trim();
+        console.log("Using webhook base URL:", baseUrl);
 
-        // Determine TwiML language and voice based on selection
-        // For Tamil, use Google Cloud TTS with proper Tamil support
-        const twimlLanguage = language === 'ta' ? 'ta-IN' : 'en-IN';
-        const voiceName = language === 'ta' ? 'Google.ta-IN-Standard-A' : 'alice';
-        
-        // Create inline TwiML (works in all environments including localhost)
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="${voiceName}" language="${twimlLanguage}">${messageToUse}</Say>
-</Response>`;
-
-        console.log("Using inline TwiML for call:", {
-          to: formattedPhone,
-          language: language,
-          twimlLanguage: twimlLanguage,
-          voice: voiceName,
-          cleanedMessage: messageToUse,
-          twimlLength: twiml.length
-        });
-
-        // Use Twilio for voice calls
+        // Use Twilio for voice calls with AI webhook
         if (!twilioClient) {
           throw new Error('Twilio client not available');
         }
 
         const call = await twilioClient.calls.create({
-          twiml: twiml,
           to: formattedPhone,
           from: TWILIO_PHONE_NUMBER,
+          url: `${baseUrl}/api/voice/webhook?lang=${language}&studentId=${studentFeeId}`,
+          statusCallback: `${baseUrl}/api/voice/call-status`,
+          statusCallbackMethod: 'POST',
           timeout: 30,
-          record: false,
-          machineDetection: 'Enable',
+          record: false
         });
 
         console.log("Twilio call created successfully:", {
@@ -705,13 +675,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           to: call.to
         });
 
-        // Create reminder record with the actual message sent
+        // Create reminder record for AI voice call
         const reminderData = {
           studentFeeId: parseInt(studentFeeId),
           type: "voice" as const,
           status: "sent" as const,
           twilioCallSid: call.sid,
-          message: messageToUse,
+          message: `AI voice call initiated for ${studentName} - ${courseName} (Pending: ${pendingAmount})`,
           sentAt: new Date(),
         };
 
@@ -1418,8 +1388,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Test voice processing with Gemini AI
-  app.post("/api/voice/test-gemini", authenticateToken, async (req: AuthRequest, res) => {
+  // Test voice processing with Groq Llama AI
+  app.post("/api/voice/test-groq", authenticateToken, async (req: AuthRequest, res) => {
     try {
       const { text, language = 'en', studentId } = req.body;
       
@@ -1462,14 +1432,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      console.log("Testing Gemini with context:", { text, context });
+      console.log("Testing Groq Llama with context:", { text, context });
 
+      const startTime = Date.now();
       const classification = await classifyIntentAndRespond(text, context, 'test-call');
+      const processingTime = Date.now() - startTime;
       
       res.json({
         success: true,
         input: text,
         context: context,
+        aiProvider: "groq-llama",
+        processingTimeMs: processingTime,
         result: {
           intent: classification.intent,
           confidence: classification.confidence,
@@ -1481,9 +1455,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
     } catch (error) {
-      console.error("Error testing Gemini:", error);
-      res.status(500).json({ 
-        message: "Failed to test Gemini processing", 
+      console.error("Error testing Groq Llama:", error);
+      res.status(500).json({
+        message: "Failed to test Groq Llama processing",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
