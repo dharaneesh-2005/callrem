@@ -2,6 +2,10 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { z } from "zod";
+import { join } from "path";
+import { tmpdir } from "os";
+import { writeFileSync, unlinkSync, existsSync } from "fs";
+import { z } from "zod";
 import {
   insertCourseSchema,
   insertStudentSchema,
@@ -28,9 +32,15 @@ import {
   detectLanguage,
   classifyIntentAndRespond,
   generateFollowupResponse,
+  transcribeAudio,
+  generateSpeech,
   type ChatContext,
   type IntentClassification
 } from "./groq";
+import { unlinkSync } from "fs";
+import { writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 // Initialize Razorpay (conditionally)
 let razorpay: any = null;
@@ -646,11 +656,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         // Get current domain for webhook URLs
-        const baseUrl = process.env.REPLIT_DOMAINS ? 
-          `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
-          req.get('host')?.includes('localhost') ? 
-            `http://${req.get('host')}` : 
-            `https://${req.get('host')}`;
+        const baseUrl = process.env.PUBLIC_URL || 
+          (process.env.REPLIT_DOMAINS ? 
+            `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+            req.get('host')?.includes('localhost') ? 
+              `http://${req.get('host')}` : 
+              `https://${req.get('host')}`);
         
         console.log("Using webhook base URL:", baseUrl);
 
@@ -805,8 +816,405 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Main voice webhook endpoint - handles incoming voice calls
+  // Main voice webhook endpoint - Groq-powered (STT + AI + TTS)
   app.post("/api/voice/webhook", async (req, res) => {
+    try {
+      const callSid = req.body.CallSid || '';
+      const callerNumber = req.body.From || '';
+      const toNumber = req.body.To || '';
+      
+      console.log("Voice webhook - Initial call (Groq-powered):", { callSid, callerNumber, toNumber });
+      
+      // Create call log
+      try {
+        await storage.createCallLog({
+          callSid,
+          toNumber,
+          fromNumber: callerNumber,
+          status: 'initiated'
+        });
+      } catch (error) {
+        console.error("Failed to create call log:", error);
+      }
+      
+      // Try to identify student by phone number
+      let studentInfo = null;
+      let language: 'en' | 'ta' = 'en';
+      
+      const urlParams = new URLSearchParams(req.url?.split('?')[1] || '');
+      if (urlParams.get('lang') === 'ta') {
+        language = 'ta';
+      }
+      
+      try {
+        const students = await storage.getStudents();
+        studentInfo = students.find(student => 
+          student.phone && (
+            student.phone === toNumber ||
+            toNumber.endsWith(student.phone.replace(/^\+91/, '')) ||
+            student.phone === toNumber.replace(/^\+91/, '') ||
+            toNumber.replace(/^\+1/, '').endsWith(student.phone) ||
+            student.phone.replace(/^\+91/, '') === toNumber.replace(/^\+1/, '') ||
+            student.phone.replace(/[^\d]/g, '').endsWith(toNumber.replace(/[^\d]/g, '').slice(-10))
+          )
+        );
+        
+        console.log("Student lookup:", { 
+          toNumber, 
+          foundStudent: studentInfo ? `${studentInfo.firstName} ${studentInfo.lastName}` : 'None',
+          totalStudents: students.length 
+        });
+      } catch (error) {
+        console.log("Could not search students:", error);
+      }
+      
+      // Get base URL for webhook callbacks
+      const baseUrl = process.env.PUBLIC_URL || 
+        (process.env.REPLIT_DOMAINS ? 
+          `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+          req.get('host')?.includes('localhost') ? 
+            `http://${req.get('host')}` : 
+            `https://${req.get('host')}`);
+      
+      console.log("Using base URL for callbacks:", baseUrl);
+      
+      // Create personalized greeting
+      let greeting;
+      if (studentInfo) {
+        let pendingAmount = '';
+        let courseName = '';
+        let department = '';
+        
+        try {
+          const studentFees = await storage.getStudentFeesByStudent(studentInfo.id);
+          if (studentFees.length > 0) {
+            const pendingFee = studentFees.find(fee => parseFloat(fee.pendingAmount) > 0);
+            if (pendingFee) {
+              pendingAmount = pendingFee.pendingAmount;
+              courseName = pendingFee.course?.name || 'Unknown Course';
+              department = pendingFee.course?.description || 'your department';
+            }
+          }
+        } catch (error) {
+          console.log("Could not get student fees for greeting:", error);
+        }
+        
+        if (pendingAmount && parseFloat(pendingAmount) > 0) {
+          greeting = language === 'ta' 
+            ? `வணக்கம் ${studentInfo.firstName}! நான் உங்க கல்லூரியோட AI assistant. உங்களுக்கு ${pendingAmount} ரூபாய் fees pending-ல இருக்கு. ஏதாவது doubt-ஆ இருக்கா?`
+            : `Hello ${studentInfo.firstName}! I'm your AI assistant. You have a pending fee of ${pendingAmount} rupees in ${department}. Do you have any questions?`;
+        } else {
+          greeting = language === 'ta' 
+            ? `வணக்கம் ${studentInfo.firstName}! நான் உங்க கல்லூரியோட AI assistant. ஏதாவது help வேணுமா?`
+            : `Hello ${studentInfo.firstName}! I'm your AI assistant. How can I help you today?`;
+        }
+      } else {
+        greeting = language === 'ta' 
+          ? 'வணக்கம்! நான் உங்க கல்லூரியோட AI assistant. என்ன தெரிஞ்சுக்கணும்?'
+          : 'Hello! I am your AI assistant. What would you like to know?';
+      }
+      
+      // Generate speech using Groq TTS
+      try {
+        const greetingAudio = await generateSpeech(greeting, language);
+        const audioPath = join(tmpdir(), `greeting_${callSid}.wav`);
+        writeFileSync(audioPath, greetingAudio);
+        
+        // Upload audio to a temporary URL (you'll need to serve this)
+        // For now, use Twilio's <Say> as fallback
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi" language="en-IN">${greeting}</Say>
+  <Pause length="1"/>
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
+</Response>`;
+
+        console.log("TwiML with Groq processing:", twiml);
+        
+        res.type('text/xml');
+        res.send(twiml);
+        
+        // Clean up temp file
+        setTimeout(() => {
+          try {
+            unlinkSync(audioPath);
+          } catch (e) {}
+        }, 5000);
+        
+      } catch (error) {
+        console.error("Groq TTS error, falling back to Twilio Say:", error);
+        
+        // Fallback to Twilio's Say
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi" language="en-IN">${greeting}</Say>
+  <Pause length="1"/>
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
+</Response>`;
+
+        res.type('text/xml');
+        res.send(twiml);
+      }
+      
+      // Log initial interaction
+      try {
+        await storage.createConversationLog({
+          callSid,
+          userSpeech: `[Call initiated from ${callerNumber}]`,
+          botResponse: greeting,
+          intent: "greeting",
+          confidence: "1.0",
+          language,
+          studentId: studentInfo?.id
+        });
+      } catch (error) {
+        console.error("Failed to log initial conversation:", error);
+      }
+      
+    } catch (error) {
+      console.error("Voice webhook error:", error);
+      
+      const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="alice" language="en-IN">Sorry, there was an error. Please try again later.</Say>
+</Response>`;
+      
+      res.type('text/xml');
+      res.send(errorTwiml);
+    }
+  });
+
+  // Process recorded audio with Groq STT + AI + TTS
+  app.post("/api/voice/groq-process", async (req, res) => {
+    try {
+      const recordingUrl = req.body.RecordingUrl;
+      const callSid = req.body.CallSid || '';
+      
+      console.log("Processing recording with Groq:", { recordingUrl, callSid });
+      
+      if (!recordingUrl) {
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">I didn't hear anything. Please try again.</Say>
+  <Hangup/>
+</Response>`;
+        res.type('text/xml');
+        return res.send(twiml);
+      }
+      
+      // Download the recording
+      const audioResponse = await fetch(recordingUrl + '.wav', {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
+        }
+      });
+      
+      if (!audioResponse.ok) {
+        console.error("Failed to download recording:", audioResponse.status);
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">I couldn't process your audio. Please try again.</Say>
+  <Hangup/>
+</Response>`;
+        res.type('text/xml');
+        return res.send(twiml);
+      }
+      
+      const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+      
+      // Check if audio is too short (less than 1KB is likely silence)
+      if (audioBuffer.length < 1000) {
+        console.log("Recording too short, likely silence:", audioBuffer.length);
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">I didn't hear anything. Please speak after the tone.</Say>
+  <Pause length="1"/>
+  <Record action="${process.env.PUBLIC_URL}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="true" transcribe="false" />
+</Response>`;
+        res.type('text/xml');
+        return res.send(twiml);
+      }
+      
+      // Transcribe with Groq Whisper
+      const transcription = await transcribeAudio(audioBuffer, 'recording.wav');
+      console.log("Groq transcription:", transcription);
+      
+      if (!transcription || transcription.length < 2) {
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">I didn't catch that. Thank you for calling.</Say>
+  <Hangup/>
+</Response>`;
+        res.type('text/xml');
+        return res.send(twiml);
+      }
+      
+      // Build context
+      let context: ChatContext = { language: 'en' };
+      let studentInfo = null;
+      
+      try {
+        const callLog = await storage.getCallLogByCallSid(callSid);
+        if (callLog) {
+          const students = await storage.getStudents();
+          studentInfo = students.find(student => 
+            student.phone && callLog.toNumber.includes(student.phone.replace(/^\+91/, '').slice(-10))
+          );
+          
+          if (studentInfo) {
+            context.studentName = `${studentInfo.firstName} ${studentInfo.lastName}`;
+            context.phone = studentInfo.phone;
+            
+            const studentFees = await storage.getStudentFeesByStudent(studentInfo.id);
+            if (studentFees.length > 0) {
+              const pendingFee = studentFees.find(fee => parseFloat(fee.pendingAmount) > 0);
+              if (pendingFee) {
+                context.courseName = pendingFee.course?.name;
+                context.pendingAmount = pendingFee.pendingAmount;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.log("Could not get student context:", error);
+      }
+      
+      // Detect language
+      context.language = await detectLanguage(transcription);
+      
+      // Get AI response
+      const classification = await classifyIntentAndRespond(transcription, context, callSid);
+      console.log("Groq AI response:", classification);
+      
+      // Escape XML special characters in response
+      const escapeXml = (text: string) => {
+        return text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+      };
+      
+      const safeResponse = escapeXml(classification.suggestedResponse);
+      const baseUrl = process.env.PUBLIC_URL || `https://${req.get('host')}`;
+      
+      // Generate audio with Groq TTS
+      try {
+        const responseAudio = await generateSpeech(classification.suggestedResponse, context.language);
+        const audioFilename = `response_${callSid}_${Date.now()}.wav`;
+        const audioPath = join(tmpdir(), audioFilename);
+        writeFileSync(audioPath, responseAudio);
+        
+        console.log(`Generated audio file: ${audioFilename} (${responseAudio.length} bytes)`);
+        
+        // Check if conversation should end
+        if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
+          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${baseUrl}/api/voice/audio/${audioFilename}</Play>
+  <Say voice="Polly.Aditi">Thank you for calling. Have a great day!</Say>
+  <Hangup/>
+</Response>`;
+          res.type('text/xml');
+          
+          // Clean up after 30 seconds
+          setTimeout(() => {
+            try { unlinkSync(audioPath); } catch (e) {}
+          }, 30000);
+          
+          return res.send(twiml);
+        }
+        
+        // Continue conversation
+        const followupAudio = await generateSpeech("Is there anything else I can help you with?", context.language);
+        const followupFilename = `followup_${callSid}_${Date.now()}.wav`;
+        const followupPath = join(tmpdir(), followupFilename);
+        writeFileSync(followupPath, followupAudio);
+        
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Play>${baseUrl}/api/voice/audio/${audioFilename}</Play>
+  <Pause length="1"/>
+  <Play>${baseUrl}/api/voice/audio/${followupFilename}</Play>
+  <Pause length="1"/>
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
+</Response>`;
+        
+        console.log("Sending TwiML with Groq TTS audio:", twiml);
+        
+        res.type('text/xml');
+        res.send(twiml);
+        
+        // Clean up after 30 seconds
+        setTimeout(() => {
+          try { 
+            unlinkSync(audioPath);
+            unlinkSync(followupPath);
+          } catch (e) {}
+        }, 30000);
+        
+      } catch (ttsError) {
+        console.error("Groq TTS error, falling back to Twilio Say:", ttsError);
+        
+        // Fallback to Twilio Say if Groq TTS fails
+        if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
+          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">${safeResponse}</Say>
+  <Say voice="Polly.Aditi">Thank you for calling. Have a great day!</Say>
+  <Hangup/>
+</Response>`;
+          res.type('text/xml');
+          return res.send(twiml);
+        }
+        
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">${safeResponse}</Say>
+  <Pause length="1"/>
+  <Say voice="Polly.Aditi">Is there anything else I can help you with?</Say>
+  <Pause length="1"/>
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
+</Response>`;
+        
+        console.log("Sending TwiML response (fallback):", twiml);
+        
+        res.type('text/xml');
+        res.send(twiml);
+      }
+      
+      // Log conversation
+      try {
+        await storage.createConversationLog({
+          callSid,
+          userSpeech: transcription,
+          botResponse: classification.suggestedResponse,
+          intent: classification.intent,
+          confidence: classification.confidence.toString(),
+          language: context.language,
+          studentId: studentInfo?.id
+        });
+      } catch (error) {
+        console.error("Failed to log conversation:", error);
+      }
+      
+    } catch (error) {
+      console.error("Groq processing error:", error);
+      
+      const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi">Sorry, I had trouble processing that. Thank you for calling.</Say>
+  <Hangup/>
+</Response>`;
+      
+      res.type('text/xml');
+      res.send(errorTwiml);
+    }
+  });
+
+  // OLD ENDPOINT - Keep for backward compatibility
+  app.post("/api/voice/webhook-old", async (req, res) => {
     try {
       const callSid = req.body.CallSid || '';
       const callerNumber = req.body.From || '';
@@ -861,6 +1269,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const voice = language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
       const twimlLanguage = language === 'ta' ? 'ta-IN' : 'en-IN';
       
+      // Get base URL for webhook callbacks
+      const baseUrl = process.env.PUBLIC_URL || 
+        (process.env.REPLIT_DOMAINS ? 
+          `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+          req.get('host')?.includes('localhost') ? 
+            `http://${req.get('host')}` : 
+            `https://${req.get('host')}`);
+      
+      console.log("Using base URL for callbacks:", baseUrl);
+      
       // Create personalized greeting with fee details
       let greeting;
       if (studentInfo) {
@@ -914,7 +1332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather input="speech" action="/api/voice/handle-speech" method="POST" speechTimeout="5" timeout="15" language="${twimlLanguage}">
+  <Gather input="speech" action="${baseUrl}/api/voice/handle-speech" method="POST" speechTimeout="auto" timeout="10" language="${twimlLanguage}" hints="fee, payment, course, help, support">
     <Say voice="${voice}" language="${twimlLanguage}">${greeting.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Say>
   </Gather>
   <Say voice="${voice}" language="${twimlLanguage}">${language === 'ta' ? 'நான் உங்கள் பதிலைக் கேட்கவில்லை. தயவுசெய்து மீண்டும் அழைக்கவும். நன்றி!' : 'I didn\'t hear your response. Please call back. Thank you!'}</Say>
@@ -1060,20 +1478,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         studentName: context.studentName 
       });
       
-      // Use Gemini to classify intent and generate response
+      // Use Groq to classify intent and generate response
       try {
         const classification = await classifyIntentAndRespond(speechResult, context, callSid);
         
-        console.log("Gemini classification result:", classification);
+        console.log("Groq classification result:", classification);
         
         const voice = context.language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
         const twimlLanguage = context.language === 'ta' ? 'ta-IN' : 'en-IN';
+        
+        // Get base URL for webhook callbacks
+        const baseUrl = process.env.PUBLIC_URL || 
+          (process.env.REPLIT_DOMAINS ? 
+            `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+            req.get('host')?.includes('localhost') ? 
+              `http://${req.get('host')}` : 
+              `https://${req.get('host')}`);
         
         let twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}" language="${twimlLanguage}">${classification.suggestedResponse.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Say>`;
 
-        if (classification.shouldTransfer) {
+        // Check if user wants to end the call
+        if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
+          // End the call gracefully
+          twiml += `<Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a great day!'}</Say>
+</Response>`;
+        } else if (classification.shouldTransfer) {
           if (classification.department === 'support') {
             twiml += `<Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'தயவுசெய்து காத்திருக்கவும், எங்கள் ஆதரவு குழுவுடன் இணைக்கிறேன்.' : 'Please hold while I connect you to our support team.'}</Say>
   <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'ஆதரவு பிரதிநிதி விரைவில் உங்களைத் தொடர்புகொள்வார். அழைப்பிற்கு நன்றி.' : 'A support representative will contact you shortly. Thank you for calling.'}</Say>`;
@@ -1084,15 +1515,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             twiml += `<Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'அழைப்பிற்கு நன்றி. நல்ல நாள்!' : 'Thank you for calling. Have a wonderful day!'}</Say>`;
           }
           twiml += `</Response>`;
-        } else if (classification.requiresFollowup) {
-          // Continue conversation
-          twiml += `<Gather input="speech" action="/api/voice/handle-followup" method="POST" speechTimeout="3" timeout="5" language="${twimlLanguage}">
-    <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'வேற ஏதாவது doubt இருக்கா?' : 'Do you have any other questions?'}</Say>
-  </Gather>
-  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'ச்சரி, நன்றி call பண்ணினதுக்கு!' : 'Thank you for calling. Have a great day!'}</Say>
-</Response>`;
         } else {
-          twiml += `<Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a great day!'}</Say>
+          // Continue conversation - ask if they have more questions
+          twiml += `<Gather input="speech" action="${baseUrl}/api/voice/handle-followup" method="POST" speechTimeout="3" timeout="8" language="${twimlLanguage}">
+    <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'வேற ஏதாவது doubt இருக்கா?' : 'Is there anything else I can help you with?'}</Say>
+  </Gather>
+  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'சரி, நன்றி call பண்ணினதுக்கு!' : 'Alright, thank you for calling. Have a great day!'}</Say>
 </Response>`;
         }
 
@@ -1115,7 +1543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
       } catch (error) {
-        console.error("Error processing speech with Gemini:", error);
+        console.error("Error processing speech with Groq:", error);
         
         // Fallback response
         const fallbackResponse = context.language === 'ta' 
@@ -1218,6 +1646,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
+        // Check if user wants to end the call (simple detection)
+        const goodbyePhrases = ['no', 'nope', 'nothing', 'that\'s all', 'thank you', 'thanks', 'bye', 'goodbye', 'okay', 'ok', 'alright', 'all set', 'i\'m good'];
+        const speechLower = speechResult.toLowerCase().trim();
+        const isGoodbye = goodbyePhrases.some(phrase => speechLower.includes(phrase)) && speechLower.length < 30;
+        
+        if (isGoodbye) {
+          // User wants to end the call
+          const voice = context.language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
+          const twimlLanguage = context.language === 'ta' ? 'ta-IN' : 'en-IN';
+          
+          const goodbyeTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a great day!'}</Say>
+</Response>`;
+          
+          res.type('text/xml');
+          res.send(goodbyeTwiml);
+          
+          // Log goodbye
+          try {
+            await storage.createConversationLog({
+              callSid,
+              userSpeech: speechResult,
+              botResponse: "Call ended by user",
+              intent: "goodbye",
+              confidence: "1.0",
+              language: context.language,
+              studentId: studentInfo?.id
+            });
+          } catch (error) {
+            console.error("Failed to log goodbye:", error);
+          }
+          
+          return;
+        }
+        
         const followupResponse = await generateFollowupResponse(
           speechResult, 
           previousIntent, 
@@ -1227,13 +1691,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         console.log("Generated followup response:", followupResponse);
         
-        const voice = context.language === 'ta' ? 'Google.ta-IN-Standard-A' : 'alice';
+        const voice = context.language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
         const twimlLanguage = context.language === 'ta' ? 'ta-IN' : 'en-IN';
         
+        // Ask one more time if they have questions, then end
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}" language="${twimlLanguage}">${followupResponse.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</Say>
-  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a wonderful day!'}</Say>
+  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a great day!'}</Say>
 </Response>`;
 
         res.type('text/xml');
@@ -1324,6 +1789,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.type('text/xml');
       res.send(errorTwiml);
+    }
+  });
+
+  // Serve audio files for Groq TTS
+  app.get("/api/voice/audio/:filename", (req, res) => {
+    try {
+      const filename = req.params.filename;
+      
+      // Security: only allow .wav files and prevent directory traversal
+      if (!filename.endsWith('.wav') || filename.includes('..') || filename.includes('/')) {
+        return res.status(400).send('Invalid filename');
+      }
+      
+      const audioPath = join(tmpdir(), filename);
+      
+      // Check if file exists
+      if (!existsSync(audioPath)) {
+        console.log("Audio file not found:", audioPath);
+        return res.status(404).send('Audio file not found');
+      }
+      
+      console.log("Serving audio file:", filename);
+      
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(audioPath);
+      
+    } catch (error) {
+      console.error("Error serving audio file:", error);
+      res.status(500).send('Error serving audio');
     }
   });
 
@@ -1580,11 +2075,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Initiating intelligent voice call:", { formattedPhone, language, studentId });
       
       // Get current domain for webhook URLs
-      const baseUrl = process.env.REPLIT_DOMAINS ? 
-        `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
-        req.get('host')?.includes('localhost') ? 
-          `http://${req.get('host')}` : 
-          `https://${req.get('host')}`;
+      const baseUrl = process.env.PUBLIC_URL || 
+        (process.env.REPLIT_DOMAINS ? 
+          `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : 
+          req.get('host')?.includes('localhost') ? 
+            `http://${req.get('host')}` : 
+            `https://${req.get('host')}`);
       
       console.log("Using webhook base URL:", baseUrl);
       

@@ -36,7 +36,8 @@ This application helps educational institutions manage student fees, process pay
 - TOTP 2FA with Speakeasy
 
 ### External Services
-- **Google Gemini AI** - Natural language processing and conversation handling
+- **Google Gemini AI** - Natural language processing and conversation handling (DEPRECATED - now using Groq)
+- **Groq AI** - Fast natural language processing and conversation handling
 - **Twilio** - Voice calls and speech recognition
 - **Razorpay** - Payment gateway
 - **Neon** - Serverless PostgreSQL hosting
@@ -92,8 +93,8 @@ TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_number
 
-# AI Integration
-GEMINI_API_KEY=your_gemini_api_key
+# AI Integration - Groq Only
+GROQ_API_KEY=your_groq_api_key
 ```
 
 4. Set up the database:
@@ -256,7 +257,7 @@ Before deploying:
 │   ├── routes.ts        # API routes
 │   ├── auth.ts          # Authentication
 │   ├── db.ts            # Database connection
-│   ├── gemini.ts        # AI integration
+│   ├── groq.ts          # AI integration (Groq)
 │   └── scheduler.ts     # Background jobs
 ├── shared/              # Shared types
 │   └── schema.ts        # Database schema
