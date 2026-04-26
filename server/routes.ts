@@ -923,7 +923,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 <Response>
   <Say voice="${voice}" language="${twimlLanguage}">${greeting}</Say>
   <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="5" speechTimeout="auto" finishOnKey="#" playBeep="false" transcribe="false" />
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="1" finishOnKey="#" playBeep="false" transcribe="false" />
 </Response>`;
 
       console.log("TwiML with Twilio Say (fast):", twiml);
@@ -978,6 +978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Download the recording
+      const downloadStart = Date.now();
       const audioResponse = await fetch(recordingUrl + '.wav', {
         headers: {
           'Authorization': 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
@@ -996,6 +997,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+      const downloadTime = Date.now() - downloadStart;
+      console.log(`Recording downloaded: ${audioBuffer.length} bytes in ${downloadTime}ms`);
       
       // Check if audio is too short (less than 1KB is likely silence)
       if (audioBuffer.length < 1000) {
@@ -1004,7 +1007,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 <Response>
   <Say voice="Polly.Aditi">I didn't hear anything. Please speak after the tone.</Say>
   <Pause length="1"/>
-  <Record action="${process.env.PUBLIC_URL}/api/voice/groq-process" method="POST" maxLength="30" timeout="5" speechTimeout="auto" finishOnKey="#" playBeep="true" transcribe="false" />
+  <Record action="${process.env.PUBLIC_URL}/api/voice/groq-process" method="POST" maxLength="30" timeout="1" finishOnKey="#" playBeep="true" transcribe="false" />
 </Response>`;
         res.type('text/xml');
         return res.send(twiml);
@@ -1119,7 +1122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   <Pause length="1"/>
   <Say voice="${voice}" language="${twimlLanguage}">${followupText}</Say>
   <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="5" speechTimeout="auto" finishOnKey="#" playBeep="false" transcribe="false" />
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="1" finishOnKey="#" playBeep="false" transcribe="false" />
 </Response>`;
       
       console.log("Sending TwiML with Twilio Say (instant)");
@@ -2392,6 +2395,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+
 
 
 
