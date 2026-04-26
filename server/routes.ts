@@ -41,6 +41,7 @@ import { unlinkSync } from "fs";
 import { writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { Pause } from "twilio/lib/twiml/VoiceResponse";
 
 // Initialize Razorpay (conditionally)
 let razorpay: any = null;
@@ -914,47 +915,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : 'Hello! I am your AI assistant. What would you like to know?';
       }
       
-      // Generate speech using Groq TTS
-      try {
-        const greetingAudio = await generateSpeech(greeting, language);
-        const audioPath = join(tmpdir(), `greeting_${callSid}.wav`);
-        writeFileSync(audioPath, greetingAudio);
-        
-        // Upload audio to a temporary URL (you'll need to serve this)
-        // For now, use Twilio's <Say> as fallback
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+      const voice = language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
+      const twimlLanguage = language === 'ta' ? 'ta-IN' : 'en-IN';
+      
+      // Use Twilio Say for instant response (no TTS generation delay)
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Aditi" language="en-IN">${greeting}</Say>
+  <Say voice="${voice}" language="${twimlLanguage}">${greeting}</Say>
   <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="2" finishOnKey="#" playBeep="false" transcribe="false" />
 </Response>`;
 
-        console.log("TwiML with Groq processing:", twiml);
-        
-        res.type('text/xml');
-        res.send(twiml);
-        
-        // Clean up temp file
-        setTimeout(() => {
-          try {
-            unlinkSync(audioPath);
-          } catch (e) {}
-        }, 5000);
-        
-      } catch (error) {
-        console.error("Groq TTS error, falling back to Twilio Say:", error);
-        
-        // Fallback to Twilio's Say
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Aditi" language="en-IN">${greeting}</Say>
-  <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
-</Response>`;
-
-        res.type('text/xml');
-        res.send(twiml);
-      }
+      console.log("TwiML with Twilio Say (fast):", twiml);
+      
+      res.type('text/xml');
+      res.send(twiml);
       
       // Log initial interaction
       try {
@@ -1029,7 +1004,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 <Response>
   <Say voice="Polly.Aditi">I didn't hear anything. Please speak after the tone.</Say>
   <Pause length="1"/>
-  <Record action="${process.env.PUBLIC_URL}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="true" transcribe="false" />
+  <Record action="${process.env.PUBLIC_URL}/api/voice/groq-process" method="POST" maxLength="30" timeout="2" finishOnKey="#" playBeep="true" transcribe="false" />
 </Response>`;
         res.type('text/xml');
         return res.send(twiml);
@@ -1098,91 +1073,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const safeResponse = escapeXml(classification.suggestedResponse);
       const baseUrl = process.env.PUBLIC_URL || `https://${req.get('host')}`;
+      const voice = context.language === 'ta' ? 'Google.ta-IN-Standard-A' : 'Polly.Aditi';
+      const twimlLanguage = context.language === 'ta' ? 'ta-IN' : 'en-IN';
       
-      // Generate audio with Groq TTS
-      try {
-        const responseAudio = await generateSpeech(classification.suggestedResponse, context.language);
-        const audioFilename = `response_${callSid}_${Date.now()}.wav`;
-        const audioPath = join(tmpdir(), audioFilename);
-        writeFileSync(audioPath, responseAudio);
-        
-        console.log(`Generated audio file: ${audioFilename} (${responseAudio.length} bytes)`);
-        
-        // Check if conversation should end
-        if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
-          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play>${baseUrl}/api/voice/audio/${audioFilename}</Play>
-  <Say voice="Polly.Aditi">Thank you for calling. Have a great day!</Say>
-  <Hangup/>
-</Response>`;
-          res.type('text/xml');
-          
-          // Clean up after 30 seconds
-          setTimeout(() => {
-            try { unlinkSync(audioPath); } catch (e) {}
-          }, 30000);
-          
-          return res.send(twiml);
-        }
-        
-        // Continue conversation
-        const followupAudio = await generateSpeech("Is there anything else I can help you with?", context.language);
-        const followupFilename = `followup_${callSid}_${Date.now()}.wav`;
-        const followupPath = join(tmpdir(), followupFilename);
-        writeFileSync(followupPath, followupAudio);
-        
+      // Use Twilio Say for instant response (no TTS generation delay)
+      
+      // Check if conversation should end
+      if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Play>${baseUrl}/api/voice/audio/${audioFilename}</Play>
-  <Pause length="1"/>
-  <Play>${baseUrl}/api/voice/audio/${followupFilename}</Play>
-  <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
-</Response>`;
-        
-        console.log("Sending TwiML with Groq TTS audio:", twiml);
-        
-        res.type('text/xml');
-        res.send(twiml);
-        
-        // Clean up after 30 seconds
-        setTimeout(() => {
-          try { 
-            unlinkSync(audioPath);
-            unlinkSync(followupPath);
-          } catch (e) {}
-        }, 30000);
-        
-      } catch (ttsError) {
-        console.error("Groq TTS error, falling back to Twilio Say:", ttsError);
-        
-        // Fallback to Twilio Say if Groq TTS fails
-        if (classification.intent === 'goodbye' || !classification.requiresFollowup) {
-          const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Aditi">${safeResponse}</Say>
-  <Say voice="Polly.Aditi">Thank you for calling. Have a great day!</Say>
+  <Say voice="${voice}" language="${twimlLanguage}">${safeResponse}</Say>
+  <Say voice="${voice}" language="${twimlLanguage}">${context.language === 'ta' ? 'நன்றி, அழைப்பிற்கு. நல்ல நாள்!' : 'Thank you for calling. Have a great day!'}</Say>
   <Hangup/>
 </Response>`;
-          res.type('text/xml');
-          return res.send(twiml);
-        }
-        
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Aditi">${safeResponse}</Say>
-  <Pause length="1"/>
-  <Say voice="Polly.Aditi">Is there anything else I can help you with?</Say>
-  <Pause length="1"/>
-  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="3" finishOnKey="#" playBeep="false" transcribe="false" />
-</Response>`;
-        
-        console.log("Sending TwiML response (fallback):", twiml);
-        
         res.type('text/xml');
-        res.send(twiml);
+        return res.send(twiml);
       }
+      
+      // Check if should transfer to human
+      if (classification.shouldTransfer) {
+        const transferMessage = context.language === 'ta'
+          ? 'தயவுசெய்து காத்திருக்கவும். எங்கள் குழுவுடன் இணைக்கிறேன். நன்றி!'
+          : 'Please hold while I connect you with our team. Thank you!';
+        
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}" language="${twimlLanguage}">${safeResponse}</Say>
+  <Pause length="1"/>
+  <Say voice="${voice}" language="${twimlLanguage}">${transferMessage}</Say>
+  <Hangup/>
+</Response>`;
+        
+        res.type('text/xml');
+        return res.send(twiml);
+      }
+      
+      // Continue conversation
+      const followupText = context.language === 'ta' 
+        ? 'வேற ஏதாவது doubt இருக்கா?'
+        : 'Is there anything else I can help you with?';
+      
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}" language="${twimlLanguage}">${safeResponse}</Say>
+  <Pause length="1"/>
+  <Say voice="${voice}" language="${twimlLanguage}">${followupText}</Say>
+  <Pause length="1"/>
+  <Record action="${baseUrl}/api/voice/groq-process" method="POST" maxLength="30" timeout="2" finishOnKey="#" playBeep="false" transcribe="false" />
+</Response>`;
+      
+      console.log("Sending TwiML with Twilio Say (instant)");
+      
+      res.type('text/xml');
+      res.send(twiml);
       
       // Log conversation
       try {
@@ -2449,4 +2392,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
 
