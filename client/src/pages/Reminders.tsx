@@ -18,7 +18,6 @@ export default function Reminders() {
     "Dear {studentName}, this is a reminder that you have a pending fee of ₹{pendingAmount} for {courseName}. Please make the payment at your earliest convenience. Thank you!"
   );
   const [selectedStudentFee, setSelectedStudentFee] = useState("");
-  const [reminderType, setReminderType] = useState("sms");
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -46,9 +45,11 @@ export default function Reminders() {
 
   const sendInstantReminderMutation = useMutation({
     mutationFn: async (data: any) => {
-      await apiRequest("POST", "/api/reminders/send-instant", data);
+      const response = await apiRequest("POST", "/api/reminders/send", data);
+      return response.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reminders"] });
       toast({
         title: "Success",
         description: "Reminder sent successfully",
@@ -86,11 +87,15 @@ export default function Reminders() {
       .replace('{pendingAmount}', selectedFee.pendingAmount.toString())
       .replace('{courseName}', selectedFee.course.name);
 
+    // Send with correct parameters expected by the API
     sendInstantReminderMutation.mutate({
       studentFeeId: selectedFee.id,
       phoneNumber: selectedFee.student.phone,
-      message: personalizedMessage,
-      reminderType,
+      studentName: `${selectedFee.student.firstName} ${selectedFee.student.lastName}`,
+      courseName: selectedFee.course.name,
+      pendingAmount: selectedFee.pendingAmount,
+      customMessage: personalizedMessage,
+      language: 'en',
     });
   };
 
@@ -157,7 +162,7 @@ export default function Reminders() {
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Send className="w-5 h-5" />
-              Send Instant Reminder
+              Send Instant Voice Reminder (AI)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -179,23 +184,9 @@ export default function Reminders() {
               </Select>
             </div>
 
-            <div>
-              <Label className="text-white mb-2">Reminder Type</Label>
-              <Select value={reminderType} onValueChange={setReminderType}>
-                <SelectTrigger className="bg-[#242424] border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-white/10">
-                  <SelectItem value="sms">SMS</SelectItem>
-                  <SelectItem value="voice">Voice Call (AI)</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             {selectedStudentFee && Array.isArray(studentFees) && (
               <div className="bg-[#242424] p-4 rounded-xl border border-white/10">
-                <p className="text-xs text-zinc-500 mb-2">Preview:</p>
+                <p className="text-xs text-zinc-500 mb-2">AI Voice Message Preview:</p>
                 <p className="text-sm text-white">
                   {reminderScript
                     .replace('{studentName}', 
@@ -217,8 +208,22 @@ export default function Reminders() {
                       })()
                     )}
                 </p>
+                <div className="mt-3 pt-3 border-t border-white/10">
+                  <p className="text-xs text-zinc-500">
+                    Phone: {(() => {
+                      const sf = studentFees.find((s: any) => s.id === parseInt(selectedStudentFee));
+                      return sf ? sf.student.phone : '';
+                    })()}
+                  </p>
+                </div>
               </div>
             )}
+
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+              <p className="text-xs text-blue-400">
+                ℹ️ This will initiate an AI-powered voice call using the script above
+              </p>
+            </div>
 
             <Button 
               onClick={handleSendInstant}
@@ -226,7 +231,7 @@ export default function Reminders() {
               className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/25"
             >
               <Send className="w-4 h-4 mr-2" />
-              {sendInstantReminderMutation.isPending ? "Sending..." : "Send Now"}
+              {sendInstantReminderMutation.isPending ? "Calling..." : "Call Now"}
             </Button>
           </CardContent>
         </Card>

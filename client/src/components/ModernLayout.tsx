@@ -13,8 +13,17 @@ import {
   X,
   Search,
   User,
-  ChevronRight
+  ChevronRight,
+  Command as CommandIcon
 } from 'lucide-react';
+import { CommandPalette } from './CommandPalette';
+import { motion } from 'framer-motion';
+import { GradientOrbs, FloatingShapes } from './AnimatedBackground';
+import { CompactLogo } from './Logo';
+import { removeAuthToken } from '@/lib/authUtils';
+import { ParticleTextCompact } from './ParticleText';
+import { NotificationsPanel } from './NotificationsPanel';
+import { SettingsModal } from './SettingsModal';
 
 interface ModernLayoutProps {
   children: ReactNode;
@@ -38,10 +47,23 @@ const navigation: NavItem[] = [
 
 export function ModernLayout({ children }: ModernLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [location] = useLocation();
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [location, setLocation] = useLocation();
+
+  const handleLogout = () => {
+    removeAuthToken();
+    setLocation('/');
+    window.location.reload();
+  };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] relative">
+    <div className="min-h-screen bg-[#0a0a0a] relative overflow-hidden">
+      {/* Animated Background Elements */}
+      <GradientOrbs />
+      <FloatingShapes />
+      
       {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -50,8 +72,8 @@ export function ModernLayout({ children }: ModernLayoutProps) {
           {/* Logo */}
           <div className="flex items-center justify-between p-6 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                <Phone className="w-5 h-5 text-white" />
+              <div className="flex items-center justify-center">
+                <CompactLogo size={40} />
               </div>
               <div>
                 <h1 className="text-xl font-bold text-white">FeeManager</h1>
@@ -99,7 +121,7 @@ export function ModernLayout({ children }: ModernLayoutProps) {
 
           {/* User Profile */}
           <div className="p-4 border-t border-white/10">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
               <div className="w-10 h-10 bg-gradient-to-br from-zinc-700 to-zinc-800 rounded-full flex items-center justify-center">
                 <User className="w-5 h-5 text-white" />
               </div>
@@ -107,7 +129,13 @@ export function ModernLayout({ children }: ModernLayoutProps) {
                 <p className="text-sm font-medium text-white">Admin User</p>
                 <p className="text-xs text-zinc-500">admin@feemanager.com</p>
               </div>
-              <LogOut className="w-4 h-4 text-zinc-500 hover:text-white transition-colors" />
+              <button
+                onClick={handleLogout}
+                className="p-2 rounded-lg hover:bg-red-500/10 transition-colors group"
+                title="Logout"
+              >
+                <LogOut className="w-4 h-4 text-zinc-500 group-hover:text-red-400 transition-colors" />
+              </button>
             </div>
           </div>
         </div>
@@ -126,26 +154,39 @@ export function ModernLayout({ children }: ModernLayoutProps) {
                 <Menu className="w-5 h-5 text-white" />
               </button>
               
-              {/* Search */}
-              <div className="relative hidden md:block">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="text"
-                  placeholder="Search students, payments..."
-                  className="pl-10 pr-4 py-2 w-80 bg-[#1a1a1a] border border-white/10 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
-                />
+              {/* Particle Text Effect */}
+              <div className="hidden lg:block">
+                <ParticleTextCompact text="FeeManager" />
               </div>
+              
+              {/* Search */}
+              <button
+                onClick={() => setCommandOpen(true)}
+                className="relative hidden md:flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-white/10 rounded-xl text-zinc-400 hover:text-white hover:border-white/20 transition-all group"
+              >
+                <Search className="w-4 h-4" />
+                <span className="text-sm">Search...</span>
+                <kbd className="ml-auto hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 font-mono text-xs text-zinc-500 group-hover:text-zinc-400">
+                  ⌘K
+                </kbd>
+              </button>
             </div>
 
             <div className="flex items-center gap-3">
               {/* Notifications */}
-              <button className="relative p-2 rounded-xl hover:bg-white/5 transition-colors">
+              <button 
+                onClick={() => setNotificationsOpen(true)}
+                className="relative p-2 rounded-xl hover:bg-white/5 transition-colors"
+              >
                 <Bell className="w-5 h-5 text-white" />
-                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
               </button>
               
               {/* Settings */}
-              <button className="p-2 rounded-xl hover:bg-white/5 transition-colors">
+              <button 
+                onClick={() => setSettingsOpen(true)}
+                className="p-2 rounded-xl hover:bg-white/5 transition-colors"
+              >
                 <Settings className="w-5 h-5 text-white" />
               </button>
             </div>
@@ -167,6 +208,15 @@ export function ModernLayout({ children }: ModernLayoutProps) {
           onClick={() => setSidebarOpen(false)}
         />
       )}
+
+      {/* Command Palette */}
+      <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+      
+      {/* Notifications Panel */}
+      <NotificationsPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+      
+      {/* Settings Modal */}
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

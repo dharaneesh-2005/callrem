@@ -6,8 +6,11 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { setAuthToken } from "@/lib/authUtils";
-import { GraduationCap } from "lucide-react";
 import QRCodeSetup from "@/components/QRCodeSetup";
+import { motion } from "framer-motion";
+import { GradientOrbs, FloatingShapes } from "@/components/AnimatedBackground";
+import { Logo } from "@/components/Logo";
+import { ParticleTextHero } from "@/components/ParticleText";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -135,19 +138,44 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a]">
-      <div className="max-w-md w-full space-y-8 p-8">
-        <Card className="bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl">
-          <CardContent className="pt-8">
-            <div className="text-center mb-8">
-              <div className="mx-auto h-12 w-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
-                <GraduationCap className="text-white text-xl" />
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#0a0a0a] relative overflow-hidden">
+      {/* Animated Background */}
+      <GradientOrbs />
+      <FloatingShapes />
+      
+      {/* Particle Text Hero - Above login card */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8, delay: 0.2 }}
+        className="mb-8 z-20 w-full flex justify-center"
+      >
+        <ParticleTextHero text="Welcome" />
+      </motion.div>
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
+        className="max-w-md w-full space-y-8 p-8 relative z-10"
+      >
+        <Card className="bg-[#1a1a1a]/80 backdrop-blur-xl border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5" />
+          <CardContent className="pt-8 relative">
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+              className="text-center mb-8"
+            >
+              <div className="mx-auto mb-6 flex justify-center">
+                <Logo size={80} animated={true} />
               </div>
-              <h2 className="text-3xl font-bold text-white">Fee Management</h2>
-              <p className="mt-2 text-zinc-400">
+              <h2 className="text-3xl font-bold text-white mb-2">Fee Management</h2>
+              <p className="text-zinc-400">
                 {isRegistering ? "Create your account" : "Sign in to your account"}
               </p>
-            </div>
+            </motion.div>
             
             <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-6">
               <div>
@@ -267,7 +295,7 @@ export default function Login() {
             </form>
           </CardContent>
         </Card>
-      </div>
+      </motion.div>
     </div>
   );
 }

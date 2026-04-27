@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { X, CreditCard } from "lucide-react";
+import { triggerSuccessConfetti } from "@/components/ConfettiEffect";
+import { motion } from "framer-motion";
 
 interface RecordPaymentModalProps {
   onClose: () => void;
@@ -35,6 +37,10 @@ export default function RecordPaymentModal({ onClose }: RecordPaymentModalProps)
       queryClient.invalidateQueries({ queryKey: ["/api/student-fees"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      
+      // Trigger confetti celebration
+      triggerSuccessConfetti();
+      
       toast({
         title: "Success",
         description: "Payment recorded successfully",

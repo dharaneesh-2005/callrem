@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ModernLayout";
+import { TiltCard, ShimmerCard } from "@/components/TiltCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { UserPlus, Edit, Trash2, Eye } from "lucide-react";
+import { UserPlus, Edit, Trash2, Eye, Mail, Phone as PhoneIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import AddStudentModal from "@/components/modals/AddStudentModal";
+import { motion } from "framer-motion";
 
 export default function Students() {
   const [showAddModal, setShowAddModal] = useState(false);
@@ -97,46 +99,54 @@ export default function Students() {
       />
 
       {/* Search and Filter */}
-      <Card className="bg-[#1a1a1a] border-white/10 mb-6">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label className="text-white mb-2">Search Student</Label>
-              <Input
-                type="text"
-                placeholder="Search by name, email, or phone"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="bg-[#242424] border-white/10 text-white placeholder-zinc-500"
-              />
-            </div>
-            <div>
-              <Label className="text-white mb-2">Course Filter</Label>
-              <Select defaultValue="all">
-                <SelectTrigger className="bg-[#242424] border-white/10 text-white">
-                  <SelectValue placeholder="All Courses" />
-                </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-white/10">
-                  <SelectItem value="all">All Courses</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-white mb-2">Status Filter</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="bg-[#242424] border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[#1a1a1a] border-white/10">
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <Card className="bg-[#1a1a1a] border-white/10 mb-6 overflow-hidden">
+          <ShimmerCard>
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <Label className="text-white mb-2">Search Student</Label>
+                  <Input
+                    type="text"
+                    placeholder="Search by name, email, or phone"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="bg-[#242424] border-white/10 text-white placeholder-zinc-500"
+                  />
+                </div>
+                <div>
+                  <Label className="text-white mb-2">Course Filter</Label>
+                  <Select defaultValue="all">
+                    <SelectTrigger className="bg-[#242424] border-white/10 text-white">
+                      <SelectValue placeholder="All Courses" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1a1a1a] border-white/10">
+                      <SelectItem value="all">All Courses</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-white mb-2">Status Filter</Label>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="bg-[#242424] border-white/10 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1a1a1a] border-white/10">
+                      <SelectItem value="all">All Status</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </ShimmerCard>
+        </Card>
+      </motion.div>
 
       {/* Students Table */}
       <div className="modern-table">
