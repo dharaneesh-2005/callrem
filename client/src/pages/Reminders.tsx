@@ -45,14 +45,14 @@ export default function Reminders() {
 
   const sendInstantReminderMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/reminders/send", data);
+      const response = await apiRequest("POST", "/api/reminders/send-script", data);
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/reminders"] });
       toast({
         title: "Success",
-        description: "Reminder sent successfully",
+        description: "Script reminder sent successfully - call will speak the message and end",
       });
       setSelectedStudentFee("");
     },
@@ -87,15 +87,11 @@ export default function Reminders() {
       .replace('{pendingAmount}', selectedFee.pendingAmount.toString())
       .replace('{courseName}', selectedFee.course.name);
 
-    // Send with correct parameters expected by the API
+    // Send with script message (not AI conversation)
     sendInstantReminderMutation.mutate({
       studentFeeId: selectedFee.id,
       phoneNumber: selectedFee.student.phone,
-      studentName: `${selectedFee.student.firstName} ${selectedFee.student.lastName}`,
-      courseName: selectedFee.course.name,
-      pendingAmount: selectedFee.pendingAmount,
-      customMessage: personalizedMessage,
-      language: 'en',
+      scriptMessage: personalizedMessage,
     });
   };
 

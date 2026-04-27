@@ -5,7 +5,6 @@ import { z } from "zod";
 import { join } from "path";
 import { tmpdir } from "os";
 import { writeFileSync, unlinkSync, existsSync } from "fs";
-import { z } from "zod";
 import {
   insertCourseSchema,
   insertStudentSchema,
@@ -37,11 +36,8 @@ import {
   type ChatContext,
   type IntentClassification
 } from "./groq";
-import { unlinkSync } from "fs";
-import { writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
 import { Pause } from "twilio/lib/twiml/VoiceResponse";
+
 
 // Initialize Razorpay (conditionally)
 let razorpay: any = null;
@@ -752,6 +748,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Send reminder error:", error);
       res.status(500).json({ message: "Failed to send reminder" });
     }
+  });
+
+  // Script-based reminder (TTS only, no AI conversation)
+  app.post("/api/reminders/send-script", authenticateToken, async (req: AuthRequest, res) => {
+    try {
+      const { studentFeeId, phoneNumber, scriptMessage } = req.body;
+
+      if (!studentFeeId || !phoneNumber || !scriptMessage) {
+        return res.status(400).json({ message: "All fields required for script reminder" });
+      }
+
+      if (!twilioClient) {
+        return res.status(503).json({ message: "Twilio not configured" });
+      }
+
+      if (!TWILIO_PHONE_NUMBER) {
+        return res.status(503).json({ message: "Twilio phone number not configured" });
+      }
+
+      const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+      
+      // Create TwiML inline - no webhook needed!
+      const VoiceResponse = twilio.twiml.VoiceResponse;
+      const twiml = new VoiceResponse();
+      twiml.say(
+        {
+          voice: 'Polly.Aditi',
+          language: 'en-IN'
+        },
+        scriptMessage
+      );
+      twiml.pause({ length: 1 });
+      twiml.hangup();
+
+      console.log("Sending script-based reminder:", {
+        to: formattedPhone,
+        message: scriptMessage
+      });
+
+      const call = await twilioClient.calls.create({
+        to: formattedPhone,
+        from: TWILIO_PHONE_NUMBER,
+        twiml: twiml.toString(), // Use inline TwiML instead of URL
+        timeout: 30,
+        record: false
+      });
+
+      const reminderData = {
+        studentFeeId: parseInt(studentFeeId),
+        type: "voice" as const,
+        status: "sent" as const,
+        twilioCallSid: call.sid,
+        message: scriptMessage,
+        sentAt: new Date(),
+      };
+
+      const reminder = await storage.createReminder(reminderData);
+      
+      res.status(200).json({ 
+        success: true,
+        message: "Script reminder sent successfully", 
+        reminder,
+        callSid: call.sid
+      });
+    } catch (error: any) {
+      console.error("Send script reminder error:", error);
+      res.status(500).json({ message: "Failed to send script reminder" });
+    }
+  });
+
+  // TwiML endpoint for script-based reminders
+  app.get("/api/reminders/twiml-script", (req, res) => {
+    const message = req.query.message as string || "This is a payment reminder.";
+    
+    // Escape XML special characters
+    const escapeXml = (str: string) => {
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+    
+    const escapedMessage = escapeXml(message);
+    
+    console.log("Generating TwiML for script:", escapedMessage);
+    
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Aditi" language="en-IN">${escapedMessage}</Say>
+  <Pause length="1"/>
+  <Hangup/>
+</Response>`;
+
+    res.type('text/xml');
+    res.send(twiml);
   });
 
   app.post("/api/reminders/schedule", authenticateToken, async (req: AuthRequest, res) => {
