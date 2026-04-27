@@ -135,23 +135,23 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
+    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a]">
       <div className="max-w-md w-full space-y-8 p-8">
-        <Card className="bg-white rounded-2xl shadow-xl">
+        <Card className="bg-[#1a1a1a] border border-white/10 rounded-2xl shadow-2xl">
           <CardContent className="pt-8">
             <div className="text-center mb-8">
-              <div className="mx-auto h-12 w-12 bg-primary rounded-xl flex items-center justify-center mb-4">
+              <div className="mx-auto h-12 w-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 shadow-lg shadow-blue-500/25">
                 <GraduationCap className="text-white text-xl" />
               </div>
-              <h2 className="text-3xl font-bold text-gray-900">Fee Management</h2>
-              <p className="mt-2 text-gray-600">
+              <h2 className="text-3xl font-bold text-white">Fee Management</h2>
+              <p className="mt-2 text-zinc-400">
                 {isRegistering ? "Create your account" : "Sign in to your account"}
               </p>
             </div>
             
             <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-6">
               <div>
-                <Label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+                <Label htmlFor="username" className="block text-sm font-medium text-white mb-2">
                   Username
                 </Label>
                 <Input
@@ -160,13 +160,13 @@ export default function Login() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Enter your username"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-[#242424] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                   required
                 />
               </div>
               
               <div>
-                <Label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                <Label htmlFor="password" className="block text-sm font-medium text-white mb-2">
                   Password
                 </Label>
                 <Input
@@ -175,15 +175,15 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                  className="w-full px-4 py-3 bg-[#242424] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                   required
                 />
               </div>
               
               {!isRegistering && (
                 <div>
-                  <Label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
-                    2FA Code <span className="text-xs text-gray-500">(optional - if configured)</span>
+                  <Label htmlFor="otp" className="block text-sm font-medium text-white mb-2">
+                    2FA Code <span className="text-xs text-zinc-500">(optional - if configured)</span>
                   </Label>
                   <Input
                     id="otp"
@@ -192,14 +192,14 @@ export default function Login() {
                     value={totpCode}
                     onChange={(e) => setTotpCode(e.target.value)}
                     placeholder="000000"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all text-center text-lg tracking-widest"
+                    className="w-full px-4 py-3 bg-[#242424] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-center text-lg tracking-widest"
                   />
                 </div>
               )}
               
               {isRegistering && registrationStatus && !registrationStatus.registrationOpen && (
                 <div>
-                  <Label htmlFor="adminKey" className="block text-sm font-medium text-gray-700 mb-2">
+                  <Label htmlFor="adminKey" className="block text-sm font-medium text-white mb-2">
                     Admin Registration Key <span className="text-red-500">*</span>
                   </Label>
                   <Input
@@ -208,10 +208,10 @@ export default function Login() {
                     value={adminKey}
                     onChange={(e) => setAdminKey(e.target.value)}
                     placeholder="Enter admin registration key"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                    className="w-full px-4 py-3 bg-[#242424] border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                     required
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-zinc-500 mt-1">
                     Contact the system administrator for the registration key.
                   </p>
                 </div>
@@ -220,7 +220,7 @@ export default function Login() {
               <Button 
                 type="submit" 
                 disabled={isLoading}
-                className="w-full bg-primary text-white py-3 px-4 rounded-lg hover:bg-primary/90 transition-colors font-medium"
+                className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/25 transition-all font-medium"
               >
                 {isLoading 
                   ? (isRegistering ? "Creating Account..." : "Signing In...") 
@@ -237,7 +237,7 @@ export default function Login() {
                       setTotpCode("");
                       setAdminKey("");
                     }}
-                    className="text-primary hover:text-primary/80 text-sm block w-full"
+                    className="text-blue-400 hover:text-blue-300 text-sm block w-full"
                   >
                     {isRegistering 
                       ? "Already have an account? Sign In" 
@@ -249,7 +249,7 @@ export default function Login() {
                 )}
                 
                 {registrationStatus && !registrationStatus.registrationOpen && !isRegistering && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-zinc-500">
                     Registration is restricted. Contact administrator for access.
                   </p>
                 )}
@@ -258,7 +258,7 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={handleSetup2FA}
-                    className="text-primary hover:text-primary/80 text-sm"
+                    className="text-blue-400 hover:text-blue-300 text-sm"
                   >
                     Setup 2FA on your device?
                   </button>

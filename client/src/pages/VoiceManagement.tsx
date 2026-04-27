@@ -1,434 +1,174 @@
 import { useState } from "react";
+import { PageHeader } from "@/components/ModernLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Phone, MessageSquare, Activity, TestTube, Brain, PhoneCall } from "lucide-react";
+import { Phone, Activity, Brain } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
-
-interface CallLog {
-  id: number;
-  callSid: string;
-  toNumber: string;
-  fromNumber: string;
-  status: string;
-  duration: number;
-  speechResults: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface ConversationLog {
-  id: number;
-  callSid: string;
-  userSpeech: string | null;
-  botResponse: string | null;
-  intent: string | null;
-  confidence: string;
-  language: string;
-  timestamp: string;
-  student: {
-    id: number;
-    firstName: string;
-    lastName: string;
-    phone: string;
-  } | null;
-}
-
-interface Student {
-  id: number;
-  firstName: string;
-  lastName: string;
-  phone: string;
-  email: string;
-}
 
 export default function VoiceManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Form states
   const [phoneNumber, setPhoneNumber] = useState("");
   const [language, setLanguage] = useState("en");
-  const [selectedStudent, setSelectedStudent] = useState<number | null>(null);
-  const [testText, setTestText] = useState("");
-  const [testLanguage, setTestLanguage] = useState("en");
-  const [testStudentId, setTestStudentId] = useState<number | null>(null);
 
-  // Fetch data
-  const { data: callLogs, isLoading: loadingCalls } = useQuery<CallLog[]>({
+  const { data: callLogs, isLoading: loadingCalls } = useQuery({
     queryKey: ["/api/voice/call-logs"],
   });
 
-  const { data: conversationLogs, isLoading: loadingConversations } = useQuery<ConversationLog[]>({
+  const { data: conversationLogs, isLoading: loadingConversations } = useQuery({
     queryKey: ["/api/voice/conversation-logs"],
   });
 
-  const { data: students, isLoading: loadingStudents } = useQuery<Student[]>({
-    queryKey: ["/api/students"],
-  });
-
-  // Mutations
   const initiateCallMutation = useMutation({
-    mutationFn: async (data: { phoneNumber: string; language: string; studentId?: number }) => {
+    mutationFn: async (data: { phoneNumber: string; language: string }) => {
       const response = await apiRequest("POST", "/api/voice/initiate-call", data);
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast({
-        title: "Voice Call Initiated",
-        description: `Call started successfully. Call SID: ${data.callSid}`,
+        title: "Success",
+        description: "Call initiated successfully",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/voice/call-logs"] });
       setPhoneNumber("");
     },
     onError: (error: any) => {
       toast({
-        title: "Call Failed",
-        description: error.message || "Failed to initiate voice call",
+        title: "Error",
+        description: error.message || "Failed to initiate call",
         variant: "destructive",
       });
     },
   });
 
-  const testGroqMutation = useMutation({
-    mutationFn: async (data: { text: string; language: string; studentId?: number }) => {
-      const response = await apiRequest("POST", "/api/voice/test-groq", data);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Groq Llama Test Completed",
-        description: `Intent: ${data.result.intent} (${Math.round(data.result.confidence * 100)}% confidence) - ${data.processingTimeMs}ms`,
-      });
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Test Failed",
-        description: error.message || "Failed to test Groq Llama processing",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleInitiateCall = () => {
-    if (!phoneNumber.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter a phone number",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    initiateCallMutation.mutate({
-      phoneNumber: phoneNumber.trim(),
-      language,
-      studentId: selectedStudent || undefined,
-    });
-  };
-
-  const handleTestGroq = () => {
-    if (!testText.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter text to test",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    testGroqMutation.mutate({
-      text: testText.trim(),
-      language: testLanguage,
-      studentId: testStudentId || undefined,
-    });
-  };
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "completed":
-        return "default";
-      case "in-progress":
-        return "secondary";
-      case "failed":
-        return "destructive";
-      case "initiated":
-        return "outline";
-      default:
-        return "secondary";
-    }
-  };
-
-  const getIntentBadgeVariant = (intent: string | null) => {
-    if (!intent) return "outline";
-    switch (intent.toLowerCase()) {
-      case "fee_inquiry":
-        return "default";
-      case "support":
-        return "destructive";
-      case "payment":
-        return "secondary";
-      case "information":
-        return "outline";
-      default:
-        return "secondary";
-    }
+  const handleInitiateCall = (e: React.FormEvent) => {
+    e.preventDefault();
+    initiateCallMutation.mutate({ phoneNumber, language });
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Voice AI Management</h1>
-          <p className="text-muted-foreground">
-            Manage intelligent voice calls and Groq Llama AI responses (fastest model)
-          </p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <Phone className="h-6 w-6 text-primary" />
-          <Brain className="h-6 w-6 text-primary" />
-        </div>
-      </div>
+    <div>
+      <PageHeader 
+        title="Voice Management" 
+        subtitle="AI-powered voice call system"
+      />
 
       <Tabs defaultValue="initiate" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="initiate" className="flex items-center gap-2">
-            <PhoneCall className="h-4 w-4" />
+        <TabsList className="bg-[#1a1a1a] border border-white/10">
+          <TabsTrigger value="initiate" className="data-[state=active]:bg-blue-500">
+            <Phone className="w-4 h-4 mr-2" />
             Initiate Call
           </TabsTrigger>
-          <TabsTrigger value="test" className="flex items-center gap-2">
-            <TestTube className="h-4 w-4" />
-            Test AI
-          </TabsTrigger>
-          <TabsTrigger value="calls" className="flex items-center gap-2">
-            <Activity className="h-4 w-4" />
+          <TabsTrigger value="logs" className="data-[state=active]:bg-blue-500">
+            <Activity className="w-4 h-4 mr-2" />
             Call Logs
           </TabsTrigger>
-          <TabsTrigger value="conversations" className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" />
+          <TabsTrigger value="conversations" className="data-[state=active]:bg-blue-500">
+            <Brain className="w-4 h-4 mr-2" />
             Conversations
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="initiate">
-          <Card>
+          <Card className="bg-[#1a1a1a] border-white/10">
             <CardHeader>
-              <CardTitle>Initiate Intelligent Voice Call</CardTitle>
-              <CardDescription>
-                Start an AI-powered voice call with speech recognition and Groq Llama AI responses
+              <CardTitle className="text-white">Initiate Voice Call</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Start an AI-powered voice call to a student
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
+            <CardContent>
+              <form onSubmit={handleInitiateCall} className="space-y-6">
+                <div>
+                  <Label htmlFor="phone" className="text-white">Phone Number</Label>
                   <Input
-                    id="phoneNumber"
-                    placeholder="+91 9876543210 or 9876543210"
+                    id="phone"
+                    type="tel"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="+1234567890"
+                    className="bg-[#242424] border-white/10 text-white placeholder-zinc-500"
+                    required
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="language">Language</Label>
+                <div>
+                  <Label htmlFor="language" className="text-white">Language</Label>
                   <Select value={language} onValueChange={setLanguage}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select language" />
+                    <SelectTrigger className="bg-[#242424] border-white/10 text-white">
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-[#1a1a1a] border-white/10">
                       <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="ta">Tamil (தமிழ்)</SelectItem>
+                      <SelectItem value="hi">Hindi</SelectItem>
+                      <SelectItem value="es">Spanish</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="student">Student (Optional)</Label>
-                  <Select value={selectedStudent?.toString() || "none"} onValueChange={(value) => setSelectedStudent(value === "none" ? null : parseInt(value))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select student for context" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No specific student</SelectItem>
-                      {students?.map((student) => (
-                        <SelectItem key={student.id} value={student.id.toString()}>
-                          {student.firstName} {student.lastName} ({student.phone})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleInitiateCall}
-                disabled={initiateCallMutation.isPending}
-                className="w-full"
-              >
-                {initiateCallMutation.isPending ? "Initiating Call..." : "Start Voice Call"}
-              </Button>
+                <Button 
+                  type="submit" 
+                  disabled={initiateCallMutation.isPending}
+                  className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:shadow-lg hover:shadow-blue-500/25"
+                >
+                  {initiateCallMutation.isPending ? "Initiating..." : "Initiate Call"}
+                </Button>
+              </form>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="test">
-          <Card>
+        <TabsContent value="logs">
+          <Card className="bg-[#1a1a1a] border-white/10">
             <CardHeader>
-              <CardTitle>Test Groq Llama AI Processing</CardTitle>
-              <CardDescription>
-                Test how Groq Llama AI processes text input with student context (fastest model)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="testText">Test Text</Label>
-                <Textarea
-                  id="testText"
-                  placeholder="Enter text to test (e.g., 'I need help with my fees', 'What are my pending payments?')"
-                  value={testText}
-                  onChange={(e) => setTestText(e.target.value)}
-                  rows={3}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="testLanguage">Language</Label>
-                  <Select value={testLanguage} onValueChange={setTestLanguage}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select language" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="ta">Tamil (தமிழ்)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="testStudent">Student Context</Label>
-                  <Select value={testStudentId?.toString() || "none"} onValueChange={(value) => setTestStudentId(value === "none" ? null : parseInt(value))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select student for context" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No student context</SelectItem>
-                      {students?.map((student) => (
-                        <SelectItem key={student.id} value={student.id.toString()}>
-                          {student.firstName} {student.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleTestGroq}
-                disabled={testGroqMutation.isPending}
-                className="w-full"
-              >
-                {testGroqMutation.isPending ? "Testing..." : "Test Groq Llama AI"}
-              </Button>
-
-              {testGroqMutation.data && (
-                <Card className="mt-4">
-                  <CardHeader>
-                    <CardTitle>Test Results</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div>
-                      <Label className="text-sm font-medium">Input:</Label>
-                      <p className="text-sm text-muted-foreground">{testGroqMutation.data.input}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-sm font-medium">Intent:</Label>
-                        <div className="mt-1">
-                          <Badge variant={getIntentBadgeVariant(testGroqMutation.data.result.intent)}>
-                            {testGroqMutation.data.result.intent}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Confidence:</Label>
-                        <p className="text-sm">{Math.round(testGroqMutation.data.result.confidence * 100)}%</p>
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium">AI Response:</Label>
-                      <p className="text-sm text-muted-foreground">{testGroqMutation.data.result.response}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label className="text-sm font-medium">Should Transfer:</Label>
-                        <Badge variant={testGroqMutation.data.result.shouldTransfer ? "destructive" : "secondary"}>
-                          {testGroqMutation.data.result.shouldTransfer ? "Yes" : "No"}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">Department:</Label>
-                        <Badge variant="outline">{testGroqMutation.data.result.department}</Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="calls">
-          <Card>
-            <CardHeader>
-              <CardTitle>Call Logs</CardTitle>
-              <CardDescription>
-                View all voice call records and their status
+              <CardTitle className="text-white">Call Logs</CardTitle>
+              <CardDescription className="text-zinc-400">
+                History of all voice calls
               </CardDescription>
             </CardHeader>
             <CardContent>
               {loadingCalls ? (
-                <div className="text-center py-8">Loading call logs...</div>
-              ) : callLogs?.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No call logs found. Initiate a voice call to see logs here.
+                <div className="flex justify-center py-8">
+                  <div className="loading-spinner border-blue-500" />
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {callLogs?.map((call) => (
-                    <Card key={call.id} className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <Badge variant="outline">{call.callSid}</Badge>
-                            <Badge variant={getStatusBadgeVariant(call.status)}>
-                              {call.status}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            From: {call.fromNumber} → To: {call.toNumber}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {format(new Date(call.createdAt), "PPpp")}
-                          </p>
+                  {Array.isArray(callLogs) && callLogs.length > 0 ? (
+                    callLogs.map((log: any) => (
+                      <div 
+                        key={log.id}
+                        className="p-4 bg-[#242424] rounded-xl border border-white/5 hover:border-white/10 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-white font-medium">{log.toNumber}</span>
+                          <Badge className={
+                            log.status === 'completed' ? 'bg-green-500' :
+                            log.status === 'failed' ? 'bg-red-500' :
+                            'bg-yellow-500'
+                          }>
+                            {log.status}
+                          </Badge>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">
-                            Duration: {call.duration > 0 ? `${call.duration}s` : "N/A"}
-                          </p>
+                        <div className="text-sm text-zinc-400">
+                          <p>Duration: {log.duration}s</p>
+                          <p>Date: {format(new Date(log.createdAt), 'PPp')}</p>
                         </div>
                       </div>
-                    </Card>
-                  ))}
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-zinc-500">
+                      No call logs found
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -436,68 +176,54 @@ export default function VoiceManagement() {
         </TabsContent>
 
         <TabsContent value="conversations">
-          <Card>
+          <Card className="bg-[#1a1a1a] border-white/10">
             <CardHeader>
-              <CardTitle>Conversation Logs</CardTitle>
-              <CardDescription>
-                View detailed conversation exchanges and AI responses
+              <CardTitle className="text-white">Conversation Logs</CardTitle>
+              <CardDescription className="text-zinc-400">
+                AI conversation transcripts and analysis
               </CardDescription>
             </CardHeader>
             <CardContent>
               {loadingConversations ? (
-                <div className="text-center py-8">Loading conversation logs...</div>
-              ) : conversationLogs?.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  No conversation logs found. Voice interactions will appear here.
+                <div className="flex justify-center py-8">
+                  <div className="loading-spinner border-blue-500" />
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {conversationLogs?.map((conversation) => (
-                    <Card key={conversation.id} className="p-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <Badge variant="outline">{conversation.callSid}</Badge>
-                            {conversation.intent && (
-                              <Badge variant={getIntentBadgeVariant(conversation.intent)}>
-                                {conversation.intent}
-                              </Badge>
-                            )}
-                            <Badge variant="secondary">{conversation.language}</Badge>
-                          </div>
-                          <div className="text-right text-xs text-muted-foreground">
-                            {format(new Date(conversation.timestamp), "PPpp")}
-                          </div>
+                  {Array.isArray(conversationLogs) && conversationLogs.length > 0 ? (
+                    conversationLogs.map((log: any) => (
+                      <div 
+                        key={log.id}
+                        className="p-4 bg-[#242424] rounded-xl border border-white/5"
+                      >
+                        <div className="mb-3">
+                          <Badge className="bg-blue-500 mb-2">{log.intent || 'Unknown'}</Badge>
+                          <p className="text-sm text-zinc-400">
+                            Confidence: {log.confidence} | Language: {log.language}
+                          </p>
                         </div>
-                        
-                        {conversation.student && (
-                          <div className="text-sm">
-                            <span className="font-medium">Student: </span>
-                            {conversation.student.firstName} {conversation.student.lastName} 
-                            ({conversation.student.phone})
+                        {log.userSpeech && (
+                          <div className="mb-2">
+                            <p className="text-xs text-zinc-500 mb-1">User:</p>
+                            <p className="text-white">{log.userSpeech}</p>
                           </div>
                         )}
-
-                        {conversation.userSpeech && (
-                          <div className="bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
-                            <Label className="text-xs font-medium text-blue-600 dark:text-blue-400">User:</Label>
-                            <p className="text-sm mt-1">{conversation.userSpeech}</p>
+                        {log.botResponse && (
+                          <div>
+                            <p className="text-xs text-zinc-500 mb-1">Bot:</p>
+                            <p className="text-zinc-300">{log.botResponse}</p>
                           </div>
                         )}
-
-                        {conversation.botResponse && (
-                          <div className="bg-green-50 dark:bg-green-950 p-3 rounded-lg">
-                            <Label className="text-xs font-medium text-green-600 dark:text-green-400">AI:</Label>
-                            <p className="text-sm mt-1">{conversation.botResponse}</p>
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>Confidence: {Math.round(parseFloat(conversation.confidence) * 100)}%</span>
-                        </div>
+                        <p className="text-xs text-zinc-600 mt-2">
+                          {format(new Date(log.timestamp), 'PPp')}
+                        </p>
                       </div>
-                    </Card>
-                  ))}
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-zinc-500">
+                      No conversation logs found
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

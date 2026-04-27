@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PageHeader } from "@/components/ModernLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,7 +55,7 @@ export default function Students() {
     }
   };
 
-  const filteredStudents = students?.filter((student: any) => {
+  const filteredStudents = Array.isArray(students) ? students.filter((student: any) => {
     const matchesSearch = 
       student.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       student.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,64 +67,67 @@ export default function Students() {
       (statusFilter === "inactive" && !student.isActive);
     
     return matchesSearch && matchesStatus;
-  });
+  }) : [];
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-8">
-        <div className="text-center py-8">Loading students...</div>
+      <div className="flex justify-center py-8">
+        <div className="loading-spinner border-blue-500" />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Student Management</h2>
-        <Button
-          onClick={() => {
-            setEditingStudent(null);
-            setShowAddModal(true);
-          }}
-          className="bg-primary text-white hover:bg-primary/90 flex items-center gap-2"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add Student
-        </Button>
-      </div>
+    <div>
+      <PageHeader 
+        title="Student Management" 
+        subtitle="Manage your students and their information"
+        action={
+          <Button
+            onClick={() => {
+              setEditingStudent(null);
+              setShowAddModal(true);
+            }}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/25 flex items-center gap-2"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Student
+          </Button>
+        }
+      />
 
       {/* Search and Filter */}
-      <Card className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+      <Card className="bg-[#1a1a1a] border-white/10 mb-6">
         <CardContent className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <Label className="block text-sm font-medium text-gray-700 mb-2">Search Student</Label>
+              <Label className="text-white mb-2">Search Student</Label>
               <Input
                 type="text"
                 placeholder="Search by name, email, or phone"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                className="bg-[#242424] border-white/10 text-white placeholder-zinc-500"
               />
             </div>
             <div>
-              <Label className="block text-sm font-medium text-gray-700 mb-2">Course Filter</Label>
+              <Label className="text-white mb-2">Course Filter</Label>
               <Select defaultValue="all">
-                <SelectTrigger>
+                <SelectTrigger className="bg-[#242424] border-white/10 text-white">
                   <SelectValue placeholder="All Courses" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-[#1a1a1a] border-white/10">
                   <SelectItem value="all">All Courses</SelectItem>
-                  {/* Add course options dynamically */}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="block text-sm font-medium text-gray-700 mb-2">Status Filter</Label>
+              <Label className="text-white mb-2">Status Filter</Label>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
+                <SelectTrigger className="bg-[#242424] border-white/10 text-white">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-[#1a1a1a] border-white/10">
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="inactive">Inactive</SelectItem>
@@ -135,92 +139,86 @@ export default function Students() {
       </Card>
 
       {/* Students Table */}
-      <Card className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Student Details</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Contact</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Student ID</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Join Date</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Actions</th>
+      <div className="modern-table">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th>Student Details</th>
+              <th>Contact</th>
+              <th>Student ID</th>
+              <th>Join Date</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredStudents?.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center py-8 text-zinc-500">
+                  No students found. Add your first student to get started.
+                </td>
+              </tr>
+            ) : (
+              filteredStudents?.map((student: any) => (
+                <tr key={student.id}>
+                  <td>
+                    <div className="flex items-center">
+                      <div className="h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center mr-4">
+                        <span className="text-white font-medium">
+                          {student.firstName[0]}{student.lastName[0]}
+                        </span>
+                      </div>
+                      <div className="font-medium text-white">
+                        {student.firstName} {student.lastName}
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="text-white">{student.email}</div>
+                    <div className="text-sm text-zinc-400">{student.phone}</div>
+                  </td>
+                  <td className="text-white">{student.studentId}</td>
+                  <td className="text-white">
+                    {new Date(student.createdAt).toLocaleDateString()}
+                  </td>
+                  <td>
+                    <Badge className={student.isActive ? 'status-active' : 'status-inactive'}>
+                      {student.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </td>
+                  <td>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-blue-400 hover:text-blue-300 hover:bg-white/5"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(student)}
+                        className="text-blue-400 hover:text-blue-300 hover:bg-white/5"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(student.id)}
+                        className="text-red-400 hover:text-red-300 hover:bg-white/5"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredStudents?.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      No students found. Add your first student to get started.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredStudents?.map((student: any) => (
-                    <tr key={student.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center">
-                          <div className="h-10 w-10 bg-primary rounded-full flex items-center justify-center mr-4">
-                            <span className="text-white font-medium">
-                              {student.firstName[0]}{student.lastName[0]}
-                            </span>
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {student.firstName} {student.lastName}
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-gray-900">{student.email}</div>
-                        <div className="text-sm text-gray-600">{student.phone}</div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">{student.studentId}</td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {new Date(student.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant={student.isActive ? "default" : "secondary"}>
-                          {student.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex space-x-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-primary hover:text-primary/80"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(student)}
-                            className="text-primary hover:text-primary/80"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(student.id)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {showAddModal && (
         <AddStudentModal

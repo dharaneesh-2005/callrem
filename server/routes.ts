@@ -977,9 +977,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.send(twiml);
       }
       
-      // Download the recording
+      // Download the recording in MP3 format (smaller, faster download)
       const downloadStart = Date.now();
-      const audioResponse = await fetch(recordingUrl + '.wav', {
+      const audioResponse = await fetch(recordingUrl + '.mp3', {
         headers: {
           'Authorization': 'Basic ' + Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')
         }
@@ -998,7 +998,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
       const downloadTime = Date.now() - downloadStart;
-      console.log(`Recording downloaded: ${audioBuffer.length} bytes in ${downloadTime}ms`);
+      console.log(`Recording downloaded: ${audioBuffer.length} bytes in ${downloadTime}ms (MP3 format)`);
       
       // Check if audio is too short (less than 1KB is likely silence)
       if (audioBuffer.length < 1000) {
@@ -1014,7 +1014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Transcribe with Groq Whisper
-      const transcription = await transcribeAudio(audioBuffer, 'recording.wav');
+      const transcription = await transcribeAudio(audioBuffer, 'recording.mp3');
       console.log("Groq transcription:", transcription);
       
       if (!transcription || transcription.length < 2) {

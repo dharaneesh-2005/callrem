@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PageHeader } from "@/components/ModernLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -51,90 +51,88 @@ export default function Courses() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 p-8">
-        <div className="text-center py-8">Loading courses...</div>
+      <div className="flex justify-center py-8">
+        <div className="loading-spinner border-blue-500" />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 p-8">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Course Management</h2>
-        <Button
-          onClick={() => {
-            setEditingCourse(null);
-            setShowAddModal(true);
-          }}
-          className="bg-primary text-white hover:bg-primary/90 flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Add Course
-        </Button>
-      </div>
+    <div>
+      <PageHeader 
+        title="Course Management" 
+        subtitle="Manage courses and their fee structures"
+        action={
+          <Button
+            onClick={() => {
+              setEditingCourse(null);
+              setShowAddModal(true);
+            }}
+            className="bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/25 flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Add Course
+          </Button>
+        }
+      />
 
-      <Card className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Course Name</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Duration</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Fee Amount</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Status</th>
-                  <th className="px-6 py-4 text-left text-sm font-medium text-gray-600">Actions</th>
+      <div className="modern-table">
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th>Course Name</th>
+              <th>Duration</th>
+              <th>Fee Amount</th>
+              <th>Students Enrolled</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!Array.isArray(courses) || courses.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center py-8 text-zinc-500">
+                  No courses found. Add your first course to get started.
+                </td>
+              </tr>
+            ) : (
+              courses.map((course: any) => (
+                <tr key={course.id}>
+                  <td className="font-medium text-white">{course.name}</td>
+                  <td className="text-white">{course.duration} months</td>
+                  <td className="text-white">₹{course.feeAmount.toLocaleString()}</td>
+                  <td className="text-white">{course._count?.students || 0}</td>
+                  <td>
+                    <Badge className={course.isActive ? 'status-active' : 'status-inactive'}>
+                      {course.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </td>
+                  <td>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(course)}
+                        className="text-blue-400 hover:text-blue-300 hover:bg-white/5"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(course.id)}
+                        className="text-red-400 hover:text-red-300 hover:bg-white/5"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {courses?.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
-                      No courses found. Add your first course to get started.
-                    </td>
-                  </tr>
-                ) : (
-                  courses?.map((course: any) => (
-                    <tr key={course.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900">{course.name}</div>
-                        <div className="text-sm text-gray-600">{course.description}</div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">{course.duration}</td>
-                      <td className="px-6 py-4 text-gray-900 font-medium">₹{course.feeAmount}</td>
-                      <td className="px-6 py-4">
-                        <Badge variant={course.isActive ? "default" : "secondary"}>
-                          {course.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex space-x-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(course)}
-                            className="text-primary hover:text-primary/80"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(course.id)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {showAddModal && (
         <AddCourseModal
