@@ -1293,4 +1293,4 @@ Future enhancements planned:
 
 **Built with care for educational institutions**
 
-For more information, visit the [GitHub repository](https://github.com/yourusername/student-fee-manager).
+For more information, visit the [GitHub repository](https://github.com/dharaneesh-2005/callrem).
