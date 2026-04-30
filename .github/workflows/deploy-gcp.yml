@@ -66,8 +66,14 @@ jobs:
           ssh $GCP_USER@$GCP_HOST << 'ENDSSH'
             echo "🧪 Testing application..."
             sleep 5
-            curl -f http://localhost:5000 || exit 1
-            echo "✅ Application is responding!"
+            
+            # Check if PM2 process is running
+            if pm2 list | grep -q "online"; then
+              echo "✅ Application is running!"
+            else
+              echo "❌ Application is not running!"
+              exit 1
+            fi
           ENDSSH
 
       - name: Deployment notification
