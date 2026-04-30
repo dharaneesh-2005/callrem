@@ -8,8 +8,17 @@ vite.config.ts.*
 .env.local
 .env.*.local
 
+# Deployment scripts with credentials (DO NOT COMMIT!)
+create-env.sh
+
 # Cloudflare Tunnel
 tunnel-credentials.json
 *.pem
 cloudflared.log
 cloudflared.exe
+
+# GCP/AWS credentials
+*.key
+*.pem
+gcp-key.json
+aws-credentials.json
