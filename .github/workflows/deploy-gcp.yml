@@ -1,0 +1,81 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to GCP VM
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+
+      - name: Add GCP host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.GCP_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to GCP VM
+        env:
+          GCP_USER: ${{ secrets.GCP_USER }}
+          GCP_HOST: ${{ secrets.GCP_HOST }}
+          APP_DIR: ${{ secrets.APP_DIR }}
+        run: |
+          ssh $GCP_USER@$GCP_HOST << 'ENDSSH'
+            set -e
+            
+            echo "📦 Navigating to application directory..."
+            cd ${{ secrets.APP_DIR }}
+            
+            echo "🔄 Pulling latest changes..."
+            git pull origin main
+            
+            echo "📦 Installing dependencies..."
+            npm install
+            
+            echo "🔨 Building application..."
+            npm run build
+            
+            echo "🔄 Restarting application with PM2..."
+            pm2 restart student-call-assist || pm2 start npm --name student-call-assist -- start
+            
+            echo "💾 Saving PM2 configuration..."
+            pm2 save
+            
+            echo "✅ Deployment completed successfully!"
+            
+            echo "📊 Application status:"
+            pm2 status
+          ENDSSH
+
+      - name: Verify deployment
+        env:
+          GCP_USER: ${{ secrets.GCP_USER }}
+          GCP_HOST: ${{ secrets.GCP_HOST }}
+        run: |
+          ssh $GCP_USER@$GCP_HOST << 'ENDSSH'
+            echo "🧪 Testing application..."
+            sleep 5
+            curl -f http://localhost:5000 || exit 1
+            echo "✅ Application is responding!"
+          ENDSSH
+
+      - name: Deployment notification
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment successful!"
+          else
+            echo "❌ Deployment failed!"
+            exit 1
+          fi
